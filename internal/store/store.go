@@ -6,6 +6,7 @@ import (
 
 	certmeta "github.com/tasoint/certinv/internal/cert"
 	"github.com/tasoint/certinv/internal/discover"
+	"github.com/tasoint/certinv/internal/evaluate"
 )
 
 type Store interface {
@@ -15,5 +16,9 @@ type Store interface {
 	MarkHostProbed(ctx context.Context, hostname string, port int, now time.Time) error
 	UpsertCertificate(ctx context.Context, cert certmeta.Metadata, now time.Time) error
 	LinkHostCertificate(ctx context.Context, hostID int64, fingerprint string, chainComplete, hostnameMatch bool, now time.Time) error
+	GetCertificateState(ctx context.Context, hostID int64, fingerprint string) (string, error)
+	SetCertificateState(ctx context.Context, hostID int64, fingerprint, state string, now time.Time) error
+	RecordEvent(ctx context.Context, event evaluate.Event, now time.Time) (int64, error)
+	MarkEventNotified(ctx context.Context, eventID int64, now time.Time) error
 	Close() error
 }

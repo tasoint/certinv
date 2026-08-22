@@ -12,6 +12,7 @@ import (
 
 	certmeta "github.com/tasoint/certinv/internal/cert"
 	"github.com/tasoint/certinv/internal/discover"
+	"github.com/tasoint/certinv/internal/evaluate"
 )
 
 type Store struct {
@@ -162,6 +163,73 @@ ON CONFLICT(host_id, fingerprint) DO UPDATE SET
 	return nil
 }
 
+func (s *Store) GetCertificateState(ctx context.Context, hostID int64, fingerprint string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var state string
+	err := s.db.QueryRowContext(ctx, `
+SELECT state FROM certificate_states
+WHERE host_id = ? AND fingerprint = ?
+`, hostID, fingerprint).Scan(&state)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get certificate state host=%d fingerprint=%s: %w", hostID, fingerprint, err)
+	}
+	return state, nil
+}
+
+func (s *Store) SetCertificateState(ctx context.Context, hostID int64, fingerprint, state string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO certificate_states (host_id, fingerprint, state, updated_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(host_id, fingerprint) DO UPDATE SET
+  state = excluded.state,
+  updated_at = excluded.updated_at
+`, hostID, fingerprint, state, formatTime(now))
+	if err != nil {
+		return fmt.Errorf("set certificate state host=%d fingerprint=%s: %w", hostID, fingerprint, err)
+	}
+	return nil
+}
+
+func (s *Store) RecordEvent(ctx context.Context, event evaluate.Event, now time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.ExecContext(ctx, `
+INSERT INTO events (kind, fingerprint, host_id, occurred_at, detail)
+VALUES (?, ?, ?, ?, ?)
+`, event.Kind, event.Fingerprint, nullableHostID(event.HostID), formatTime(now), event.Detail)
+	if err != nil {
+		return 0, fmt.Errorf("record event %q for %s: %w", event.Kind, event.Fingerprint, err)
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("get event id: %w", err)
+	}
+	return id, nil
+}
+
+func (s *Store) MarkEventNotified(ctx context.Context, eventID int64, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `
+UPDATE events SET notified_at = ?
+WHERE id = ?
+`, formatTime(now), eventID)
+	if err != nil {
+		return fmt.Errorf("mark event %d notified: %w", eventID, err)
+	}
+	return nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	for _, statement := range schema {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
@@ -180,6 +248,13 @@ func boolInt(value bool) int {
 		return 1
 	}
 	return 0
+}
+
+func nullableHostID(hostID int64) any {
+	if hostID == 0 {
+		return nil
+	}
+	return hostID
 }
 
 var schema = []string{
@@ -222,6 +297,13 @@ var schema = []string{
   observed_at       TEXT NOT NULL,
   chain_complete    INTEGER,
   hostname_match    INTEGER,
+  PRIMARY KEY (host_id, fingerprint)
+)`,
+	`CREATE TABLE IF NOT EXISTS certificate_states (
+  host_id           INTEGER NOT NULL REFERENCES hosts(id),
+  fingerprint       TEXT NOT NULL REFERENCES certificates(fingerprint),
+  state             TEXT NOT NULL,
+  updated_at        TEXT NOT NULL,
   PRIMARY KEY (host_id, fingerprint)
 )`,
 	`CREATE TABLE IF NOT EXISTS events (
