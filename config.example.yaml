@@ -1,0 +1,61 @@
+# certinv 設定ファイルのサンプル
+# config.yaml にコピーして編集してください（config.yaml は .gitignore 済み）
+
+# 処理対象の apex ドメイン。ここに登録したものだけが処理されます。
+# eTLD+1 である必要があります（例: example.com は可、www.example.com は不可）
+apexes:
+  - example.com
+
+# Certificate Transparency には現れないホストの手動登録。
+# ワイルドカード証明書配下のホスト、443以外のポート、内部CAのホストなど。
+manual_hosts:
+  - hostname: mail.example.com
+    port: 993
+  - hostname: vpn.example.com
+    port: 443
+  - hostname: lb01.example.com
+    port: 8443
+
+discovery:
+  sources: [crtname, manual]
+  crtname:
+    endpoint: https://crt.name/v1/search
+
+probe:
+  concurrency: 5
+  connect_timeout: 5s
+  handshake_timeout: 5s
+  # DNS解決に連続して失敗した場合に retired 扱いにするまでの日数
+  retire_after_days: 30
+
+# 閾値は残存日数ではなく残存率で判定します。
+#   threshold = max(floor_days, lifetime_days * ratio)
+# 有効期間が47日に短縮されても機能させるための設計です。
+thresholds:
+  warn:
+    ratio: 0.25
+    floor_days: 3
+  alert:
+    ratio: 0.10
+    floor_days: 1
+
+storage:
+  driver: sqlite
+  dsn: ./certinv.db
+
+# serve モードのみ有効
+schedule:
+  interval: 6h
+
+# シークレットは環境変数経由でのみ指定できます
+notifiers:
+  - type: slack
+    webhook_url_env: SLACK_WEBHOOK_URL
+    events: [alert, expired, misconfigured]
+  # - type: webhook
+  #   url: https://example.com/hooks/certinv
+  #   events: [warn, alert, renewed, expired]
+
+# serve モードのみ有効
+exporter:
+  listen: :9101

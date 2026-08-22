@@ -1,0 +1,25 @@
+# Binaries
+/certinv
+/bin/
+*.exe
+
+# Test & coverage
+coverage.out
+*.test
+
+# Local state / config
+*.db
+*.db-shm
+*.db-wal
+config.yaml
+
+# Editor
+.DS_Store
+.idea/
+.vscode/
+
+# 秘密鍵素材は絶対にコミットしない
+*.key
+*.pem
+*.p12
+*.pfx

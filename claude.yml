@@ -1,0 +1,42 @@
+# Issue や PR のコメントで @claude とメンションすると Claude が応答する。
+#
+# セットアップ:
+#   ローカルで `claude` を起動し `/install-github-app` を実行するのが最も簡単。
+#   GitHub App のインストールと secret の登録、このファイルの生成まで自動で行われる。
+#
+#   手動で行う場合:
+#     1. https://github.com/apps/claude をリポジトリにインストール
+#     2. リポジトリの secret に ANTHROPIC_API_KEY を登録
+#        （Claude のサブスクリプションを使う場合は `claude setup-token` で
+#         トークンを生成し CLAUDE_CODE_OAUTH_TOKEN として登録したうえで、
+#         下の anthropic_api_key 行を
+#         claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }} に置き換える）
+
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  claude:
+    if: contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 20"
