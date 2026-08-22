@@ -216,6 +216,10 @@ func (r Runner) processHost(ctx context.Context, host discover.Host) hostResult 
 	if err != nil {
 		return hostResult{host: host, resolved: true, err: err}
 	}
+	previousCertificate, err := r.Store.LatestHostCertificate(ctx, hostID)
+	if err != nil {
+		return hostResult{host: host, resolved: true, err: err}
+	}
 	if err := r.Store.UpsertCertificate(ctx, probeResult.Certificate, now); err != nil {
 		return hostResult{host: host, resolved: true, err: err}
 	}
@@ -236,13 +240,24 @@ func (r Runner) processHost(ctx context.Context, host discover.Host) hostResult 
 	}
 
 	result := hostResult{host: host, resolved: true, probed: true}
-	if evaluation.Event != nil {
+	event := evaluation.Event
+	if previousCertificate.Fingerprint != "" &&
+		previousCertificate.Fingerprint != probeResult.Certificate.Fingerprint &&
+		probeResult.Certificate.NotAfter.After(previousCertificate.NotAfter) {
+		event = &evaluate.Event{
+			Kind:        evaluate.EventRenewed,
+			Fingerprint: probeResult.Certificate.Fingerprint,
+			HostID:      hostID,
+			Detail:      "certificate fingerprint changed and not_after increased",
+		}
+	}
+	if event != nil {
 		result.evented = true
-		eventID, err := r.Store.RecordEvent(ctx, *evaluation.Event, now)
+		eventID, err := r.Store.RecordEvent(ctx, *event, now)
 		if err != nil {
 			return hostResult{host: host, resolved: true, probed: true, err: err}
 		}
-		notified, notifyFailed := r.notifyEvent(ctx, eventID, *evaluation.Event, now)
+		notified, notifyFailed := r.notifyEvent(ctx, eventID, *event, now)
 		result.notified = notified
 		result.notifyFailed = notifyFailed
 	}

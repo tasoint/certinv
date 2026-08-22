@@ -47,6 +47,13 @@ func TestStorePersistsHostCertificateLink(t *testing.T) {
 	if err := store.LinkHostCertificate(ctx, hostID, certificate.Fingerprint, true, true, now); err != nil {
 		t.Fatalf("LinkHostCertificate() error = %v", err)
 	}
+	latest, err := store.LatestHostCertificate(ctx, hostID)
+	if err != nil {
+		t.Fatalf("LatestHostCertificate() error = %v", err)
+	}
+	if latest.Fingerprint != certificate.Fingerprint {
+		t.Fatalf("latest fingerprint = %q, want %q", latest.Fingerprint, certificate.Fingerprint)
+	}
 
 	var count int
 	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM host_certificates`).Scan(&count); err != nil {

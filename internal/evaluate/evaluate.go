@@ -17,6 +17,7 @@ const (
 	EventDiscovered    = "discovered"
 	EventWarn          = "warn"
 	EventAlert         = "alert"
+	EventRenewed       = "renewed"
 	EventExpired       = "expired"
 	EventMisconfigured = "misconfigured"
 )

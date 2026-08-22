@@ -121,6 +121,50 @@ func TestRunnerNotifiesOnlyOnStateTransition(t *testing.T) {
 	}
 }
 
+func TestRunnerEmitsRenewedWhenFingerprintChangesAndExpiryExtends(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlitestore.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	notifier := &fakeNotifier{}
+	runner := Runner{
+		Config: &config.Config{
+			Apexes: []string{"example.com"},
+			Probe:  config.Probe{Concurrency: 1},
+			Thresholds: config.Thresholds{
+				Warn:  config.Threshold{Ratio: 0.25, FloorDays: 3},
+				Alert: config.Threshold{Ratio: 0.10, FloorDays: 1},
+			},
+		},
+		Sources: []discover.Source{fakeSource{hosts: []discover.Host{
+			{Hostname: "www.example.com", Port: 443, Apex: "example.com", Source: discover.SourceManual},
+		}}},
+		Resolver:  fakeResolver{},
+		Prober:    &sequenceProber{certificates: []certmeta.Metadata{testMetadata(now, "old", 20), testMetadata(now, "new", 90)}},
+		Store:     db,
+		Notifiers: []notify.Notifier{notifier},
+		Now:       func() time.Time { return now },
+		Out:       &bytes.Buffer{},
+	}
+
+	if _, err := runner.Run(ctx); err != nil {
+		t.Fatalf("first Run() error = %v", err)
+	}
+	if _, err := runner.Run(ctx); err != nil {
+		t.Fatalf("second Run() error = %v", err)
+	}
+	if len(notifier.events) != 2 {
+		t.Fatalf("notifications = %d, want 2", len(notifier.events))
+	}
+	if got := notifier.events[1].Kind; got != evaluate.EventRenewed {
+		t.Fatalf("second event kind = %q, want %q", got, evaluate.EventRenewed)
+	}
+}
+
 type fakeSource struct {
 	hosts []discover.Host
 }
@@ -147,6 +191,19 @@ func (p fakeProber) Probe(_ context.Context, target probe.Target) (probe.Result,
 	return probe.Result{Target: target, Certificate: p.certificate, ProbedAt: time.Now()}, nil
 }
 
+type sequenceProber struct {
+	certificates []certmeta.Metadata
+	index        int
+}
+
+func (p *sequenceProber) Probe(_ context.Context, target probe.Target) (probe.Result, error) {
+	certificate := p.certificates[p.index]
+	if p.index < len(p.certificates)-1 {
+		p.index++
+	}
+	return probe.Result{Target: target, Certificate: certificate, ProbedAt: time.Now()}, nil
+}
+
 type fakeNotifier struct {
 	events []evaluate.Event
 }
@@ -162,4 +219,16 @@ func (n *fakeNotifier) Handles(string) bool {
 func (n *fakeNotifier) Notify(_ context.Context, event evaluate.Event) error {
 	n.events = append(n.events, event)
 	return nil
+}
+
+func testMetadata(now time.Time, fingerprint string, remainingDays int) certmeta.Metadata {
+	return certmeta.Metadata{
+		Fingerprint:   fingerprint,
+		IssuerCN:      "Test CA",
+		NotBefore:     now.Add(-10 * 24 * time.Hour),
+		NotAfter:      now.Add(time.Duration(remainingDays) * 24 * time.Hour),
+		LifetimeDays:  100,
+		ChainComplete: true,
+		HostnameMatch: true,
+	}
 }

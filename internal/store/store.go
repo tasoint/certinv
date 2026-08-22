@@ -14,6 +14,7 @@ type Store interface {
 	UpsertHost(ctx context.Context, host discover.Host, status string, now time.Time) (int64, error)
 	MarkHostResolved(ctx context.Context, hostname string, port int, now time.Time) error
 	MarkHostProbed(ctx context.Context, hostname string, port int, now time.Time) error
+	LatestHostCertificate(ctx context.Context, hostID int64) (HostCertificate, error)
 	UpsertCertificate(ctx context.Context, cert certmeta.Metadata, now time.Time) error
 	LinkHostCertificate(ctx context.Context, hostID int64, fingerprint string, chainComplete, hostnameMatch bool, now time.Time) error
 	GetCertificateState(ctx context.Context, hostID int64, fingerprint string) (string, error)
@@ -27,4 +28,9 @@ type Store interface {
 type StoredEvent struct {
 	ID int64
 	evaluate.Event
+}
+
+type HostCertificate struct {
+	Fingerprint string
+	NotAfter    time.Time
 }

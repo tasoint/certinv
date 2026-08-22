@@ -109,6 +109,34 @@ WHERE hostname = ? AND port = ?
 	return nil
 }
 
+func (s *Store) LatestHostCertificate(ctx context.Context, hostID int64) (store.HostCertificate, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var cert store.HostCertificate
+	var notAfter string
+	err := s.db.QueryRowContext(ctx, `
+SELECT hc.fingerprint, c.not_after
+FROM host_certificates hc
+JOIN certificates c ON c.fingerprint = hc.fingerprint
+WHERE hc.host_id = ?
+ORDER BY hc.observed_at DESC, hc.rowid DESC
+LIMIT 1
+`, hostID).Scan(&cert.Fingerprint, &notAfter)
+	if err == sql.ErrNoRows {
+		return store.HostCertificate{}, nil
+	}
+	if err != nil {
+		return store.HostCertificate{}, fmt.Errorf("latest host certificate host=%d: %w", hostID, err)
+	}
+	parsed, err := time.Parse(time.RFC3339, notAfter)
+	if err != nil {
+		return store.HostCertificate{}, fmt.Errorf("parse latest host certificate not_after: %w", err)
+	}
+	cert.NotAfter = parsed
+	return cert, nil
+}
+
 func (s *Store) UpsertCertificate(ctx context.Context, cert certmeta.Metadata, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
