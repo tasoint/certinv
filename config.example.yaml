@@ -47,14 +47,16 @@ storage:
 schedule:
   interval: 6h
 
-# シークレットは環境変数経由でのみ指定できます
-notifiers:
-  - type: slack
-    webhook_url_env: SLACK_WEBHOOK_URL
-    events: [alert, expired, misconfigured]
-  # - type: webhook
-  #   url: https://example.com/hooks/certinv
-  #   events: [warn, alert, renewed, expired]
+# シークレットは環境変数経由でのみ指定できます。
+# 通知を有効化する場合は以下をコメント解除してください。
+notifiers: []
+# notifiers:
+#   - type: slack
+#     webhook_url_env: SLACK_WEBHOOK_URL
+#     events: [alert, expired, misconfigured]
+#   - type: webhook
+#     url: https://example.com/hooks/certinv
+#     events: [warn, alert, renewed, expired]
 
 # serve モードのみ有効
 exporter:
