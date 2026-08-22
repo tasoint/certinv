@@ -19,6 +19,12 @@ type Store interface {
 	GetCertificateState(ctx context.Context, hostID int64, fingerprint string) (string, error)
 	SetCertificateState(ctx context.Context, hostID int64, fingerprint, state string, now time.Time) error
 	RecordEvent(ctx context.Context, event evaluate.Event, now time.Time) (int64, error)
+	PendingEvents(ctx context.Context) ([]StoredEvent, error)
 	MarkEventNotified(ctx context.Context, eventID int64, now time.Time) error
 	Close() error
+}
+
+type StoredEvent struct {
+	ID int64
+	evaluate.Event
 }

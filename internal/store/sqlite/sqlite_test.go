@@ -98,6 +98,16 @@ func TestStorePersistsStateAndEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RecordEvent() error = %v", err)
 	}
+	pending, err := store.PendingEvents(ctx)
+	if err != nil {
+		t.Fatalf("PendingEvents() error = %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("pending events = %d, want 1", len(pending))
+	}
+	if pending[0].ID != eventID || pending[0].Kind != evaluate.EventWarn {
+		t.Fatalf("pending event = %#v, want id %d kind %s", pending[0], eventID, evaluate.EventWarn)
+	}
 	if err := store.MarkEventNotified(ctx, eventID, now); err != nil {
 		t.Fatalf("MarkEventNotified() error = %v", err)
 	}

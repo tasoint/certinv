@@ -103,12 +103,19 @@ func (r Runner) Run(ctx context.Context) (Summary, error) {
 			return Summary{}, err
 		}
 	}
+	summary := Summary{}
+	notified, notifyFailed, err := r.retryPendingEvents(ctx, now)
+	if err != nil {
+		return summary, err
+	}
+	summary.Notified += notified
+	summary.NotifyFailed += notifyFailed
 
 	hosts, err := r.discover(ctx)
 	if err != nil {
 		return Summary{}, err
 	}
-	summary := Summary{Discovered: len(hosts)}
+	summary.Discovered = len(hosts)
 
 	jobs := make(chan discover.Host)
 	results := make(chan hostResult)
@@ -274,6 +281,25 @@ func (r Runner) notifyEvent(ctx context.Context, eventID int64, event evaluate.E
 		return false, true
 	}
 	return handled, false
+}
+
+func (r Runner) retryPendingEvents(ctx context.Context, now time.Time) (int, int, error) {
+	pending, err := r.Store.PendingEvents(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+	notified := 0
+	failed := 0
+	for _, storedEvent := range pending {
+		sent, notifyFailed := r.notifyEvent(ctx, storedEvent.ID, storedEvent.Event, now)
+		if sent {
+			notified++
+		}
+		if notifyFailed {
+			failed++
+		}
+	}
+	return notified, failed, nil
 }
 
 func printSummary(out io.Writer, summary Summary) {

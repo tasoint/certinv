@@ -13,6 +13,7 @@ import (
 	certmeta "github.com/tasoint/certinv/internal/cert"
 	"github.com/tasoint/certinv/internal/discover"
 	"github.com/tasoint/certinv/internal/evaluate"
+	"github.com/tasoint/certinv/internal/store"
 )
 
 type Store struct {
@@ -214,6 +215,35 @@ VALUES (?, ?, ?, ?, ?)
 		return 0, fmt.Errorf("get event id: %w", err)
 	}
 	return id, nil
+}
+
+func (s *Store) PendingEvents(ctx context.Context) ([]store.StoredEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, kind, fingerprint, COALESCE(host_id, 0), COALESCE(detail, '')
+FROM events
+WHERE notified_at IS NULL
+ORDER BY id
+`)
+	if err != nil {
+		return nil, fmt.Errorf("select pending events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []store.StoredEvent
+	for rows.Next() {
+		var event store.StoredEvent
+		if err := rows.Scan(&event.ID, &event.Kind, &event.Fingerprint, &event.HostID, &event.Detail); err != nil {
+			return nil, fmt.Errorf("scan pending event: %w", err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate pending events: %w", err)
+	}
+	return events, nil
 }
 
 func (s *Store) MarkEventNotified(ctx context.Context, eventID int64, now time.Time) error {
