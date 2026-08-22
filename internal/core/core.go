@@ -120,7 +120,10 @@ func (r Runner) Run(ctx context.Context) (Summary, error) {
 		for _, host := range hosts {
 			select {
 			case <-ctx.Done():
-				break
+				close(jobs)
+				wg.Wait()
+				close(results)
+				return
 			case jobs <- host:
 			}
 		}
@@ -130,18 +133,18 @@ func (r Runner) Run(ctx context.Context) (Summary, error) {
 	}()
 
 	for result := range results {
+		if result.resolved {
+			summary.Resolved++
+		}
+		if result.probed {
+			summary.Probed++
+		}
 		if result.err != nil {
 			summary.Failed++
 			if r.Logger != nil {
 				r.Logger.WarnContext(ctx, "scan host failed", "host", result.host.Hostname, "port", result.host.Port, "error", result.err)
 			}
 			continue
-		}
-		if result.resolved {
-			summary.Resolved++
-		}
-		if result.probed {
-			summary.Probed++
 		}
 	}
 
