@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -15,6 +16,7 @@ import (
 
 type Store struct {
 	db *sql.DB
+	mu sync.Mutex
 }
 
 func Open(ctx context.Context, dsn string) (*Store, error) {
@@ -22,6 +24,7 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	db.SetMaxOpenConns(1)
 	store := &Store{db: db}
 	if err := store.migrate(ctx); err != nil {
 		_ = db.Close()
@@ -35,6 +38,9 @@ func (s *Store) Close() error {
 }
 
 func (s *Store) UpsertApex(ctx context.Context, apex string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO apexes (apex, enabled, added_at)
 VALUES (?, 1, ?)
@@ -47,6 +53,9 @@ ON CONFLICT(apex) DO UPDATE SET enabled = 1
 }
 
 func (s *Store) UpsertHost(ctx context.Context, host discover.Host, status string, now time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	firstSeen := now
 	if host.FirstSeen != nil {
 		firstSeen = *host.FirstSeen
@@ -71,6 +80,9 @@ ON CONFLICT(hostname, port) DO UPDATE SET
 }
 
 func (s *Store) MarkHostResolved(ctx context.Context, hostname string, port int, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	_, err := s.db.ExecContext(ctx, `
 UPDATE hosts SET last_resolved_at = ?, status = 'active'
 WHERE hostname = ? AND port = ?
@@ -82,6 +94,9 @@ WHERE hostname = ? AND port = ?
 }
 
 func (s *Store) MarkHostProbed(ctx context.Context, hostname string, port int, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	_, err := s.db.ExecContext(ctx, `
 UPDATE hosts SET last_probed_at = ?
 WHERE hostname = ? AND port = ?
@@ -93,6 +108,9 @@ WHERE hostname = ? AND port = ?
 }
 
 func (s *Store) UpsertCertificate(ctx context.Context, cert certmeta.Metadata, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	sanNames, err := json.Marshal(cert.SANNames)
 	if err != nil {
 		return fmt.Errorf("marshal SAN names for %s: %w", cert.Fingerprint, err)
@@ -127,6 +145,9 @@ ON CONFLICT(fingerprint) DO UPDATE SET
 }
 
 func (s *Store) LinkHostCertificate(ctx context.Context, hostID int64, fingerprint string, chainComplete, hostnameMatch bool, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO host_certificates (host_id, fingerprint, observed_at, chain_complete, hostname_match)
 VALUES (?, ?, ?, ?, ?)
