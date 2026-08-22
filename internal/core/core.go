@@ -14,6 +14,7 @@ import (
 	"github.com/tasoint/certinv/internal/discover"
 	"github.com/tasoint/certinv/internal/discover/crtname"
 	"github.com/tasoint/certinv/internal/discover/manual"
+	"github.com/tasoint/certinv/internal/discover/zonefile"
 	"github.com/tasoint/certinv/internal/evaluate"
 	"github.com/tasoint/certinv/internal/notify"
 	"github.com/tasoint/certinv/internal/probe"
@@ -57,6 +58,9 @@ func Run(ctx context.Context, cfg *config.Config, out io.Writer) (Summary, error
 	}
 	if slices.Contains(cfg.Discovery.Sources, discover.SourceManual) {
 		sources = append(sources, manual.New(cfg.ManualHosts))
+	}
+	if slices.Contains(cfg.Discovery.Sources, discover.SourceZone) {
+		sources = append(sources, zonefile.New(cfg.Discovery.Zone.Files))
 	}
 	notifiers, err := notify.FromConfig(cfg.Notifiers)
 	if err != nil {

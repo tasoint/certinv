@@ -10,6 +10,7 @@ import (
 const (
 	SourceCrtName = "crtname"
 	SourceManual  = "manual"
+	SourceZone    = "zone"
 	DefaultPort   = 443
 )
 
