@@ -126,3 +126,56 @@ func TestStorePersistsStateAndEvent(t *testing.T) {
 		t.Fatal("notified_at is empty")
 	}
 }
+
+func TestMetricsSnapshot(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertApex(ctx, "example.com", now); err != nil {
+		t.Fatalf("UpsertApex() error = %v", err)
+	}
+	hostID, err := store.UpsertHost(ctx, discover.Host{
+		Hostname: "www.example.com",
+		Port:     443,
+		Apex:     "example.com",
+		Source:   discover.SourceManual,
+	}, "active", now)
+	if err != nil {
+		t.Fatalf("UpsertHost() error = %v", err)
+	}
+	if err := store.UpsertCertificate(ctx, certmeta.Metadata{
+		Fingerprint:   "abc123",
+		SubjectCN:     "www.example.com",
+		IssuerCN:      "Test CA",
+		NotBefore:     now.Add(-24 * time.Hour),
+		NotAfter:      now.Add(47 * 24 * time.Hour),
+		LifetimeDays:  48,
+		IsSelfSigned:  true,
+		ChainComplete: true,
+		HostnameMatch: true,
+	}, now); err != nil {
+		t.Fatalf("UpsertCertificate() error = %v", err)
+	}
+	if err := store.LinkHostCertificate(ctx, hostID, "abc123", true, true, now); err != nil {
+		t.Fatalf("LinkHostCertificate() error = %v", err)
+	}
+
+	snapshot, err := store.MetricsSnapshot(ctx)
+	if err != nil {
+		t.Fatalf("MetricsSnapshot() error = %v", err)
+	}
+	if len(snapshot.Certificates) != 1 {
+		t.Fatalf("certificates = %d, want 1", len(snapshot.Certificates))
+	}
+	if len(snapshot.Hosts) != 1 {
+		t.Fatalf("hosts = %d, want 1", len(snapshot.Hosts))
+	}
+	if !snapshot.Hosts[0].Reachable {
+		t.Fatal("host reachable = false, want true")
+	}
+}

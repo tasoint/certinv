@@ -288,6 +288,85 @@ WHERE id = ?
 	return nil
 }
 
+func (s *Store) MetricsSnapshot(ctx context.Context) (store.MetricsSnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	certificates, err := s.certificateMetrics(ctx)
+	if err != nil {
+		return store.MetricsSnapshot{}, err
+	}
+	hosts, err := s.hostMetrics(ctx)
+	if err != nil {
+		return store.MetricsSnapshot{}, err
+	}
+	return store.MetricsSnapshot{Certificates: certificates, Hosts: hosts}, nil
+}
+
+func (s *Store) certificateMetrics(ctx context.Context) ([]store.CertificateMetric, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT fingerprint, COALESCE(issuer_cn, ''), COALESCE(subject_cn, ''), not_before, not_after, lifetime_days
+FROM certificates
+ORDER BY fingerprint
+`)
+	if err != nil {
+		return nil, fmt.Errorf("select certificate metrics: %w", err)
+	}
+	defer rows.Close()
+
+	var certificates []store.CertificateMetric
+	for rows.Next() {
+		var cert store.CertificateMetric
+		var notBefore string
+		var notAfter string
+		if err := rows.Scan(&cert.Fingerprint, &cert.Issuer, &cert.CommonName, &notBefore, &notAfter, &cert.LifetimeDays); err != nil {
+			return nil, fmt.Errorf("scan certificate metrics: %w", err)
+		}
+		parsedNotBefore, err := time.Parse(time.RFC3339, notBefore)
+		if err != nil {
+			return nil, fmt.Errorf("parse certificate not_before: %w", err)
+		}
+		parsedNotAfter, err := time.Parse(time.RFC3339, notAfter)
+		if err != nil {
+			return nil, fmt.Errorf("parse certificate not_after: %w", err)
+		}
+		cert.NotBefore = parsedNotBefore
+		cert.NotAfter = parsedNotAfter
+		certificates = append(certificates, cert)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate certificate metrics: %w", err)
+	}
+	return certificates, nil
+}
+
+func (s *Store) hostMetrics(ctx context.Context) ([]store.HostMetric, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT hostname, port, status
+FROM hosts
+ORDER BY hostname, port
+`)
+	if err != nil {
+		return nil, fmt.Errorf("select host metrics: %w", err)
+	}
+	defer rows.Close()
+
+	var hosts []store.HostMetric
+	for rows.Next() {
+		var host store.HostMetric
+		var status string
+		if err := rows.Scan(&host.Hostname, &host.Port, &status); err != nil {
+			return nil, fmt.Errorf("scan host metrics: %w", err)
+		}
+		host.Reachable = status == "active"
+		hosts = append(hosts, host)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate host metrics: %w", err)
+	}
+	return hosts, nil
+}
+
 func (s *Store) migrate(ctx context.Context) error {
 	for _, statement := range schema {
 		if _, err := s.db.ExecContext(ctx, statement); err != nil {
