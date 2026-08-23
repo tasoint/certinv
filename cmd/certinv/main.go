@@ -19,6 +19,7 @@ import (
 	"github.com/tasoint/certinv/internal/exporter"
 	"github.com/tasoint/certinv/internal/probe"
 	sqlitestore "github.com/tasoint/certinv/internal/store/sqlite"
+	"github.com/tasoint/certinv/internal/ui"
 )
 
 func main() {
@@ -89,6 +90,10 @@ func runServe(args []string) error {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	exp := exporter.New(db)
+	uiHandler, err := ui.New(db)
+	if err != nil {
+		return err
+	}
 	runner, err := core.NewRunner(cfg, db, os.Stdout, logger)
 	if err != nil {
 		return err
@@ -99,6 +104,7 @@ func runServe(args []string) error {
 	defer stop()
 
 	mux := http.NewServeMux()
+	uiHandler.Register(mux)
 	mux.Handle("/metrics", exp.Handler())
 	server := &http.Server{
 		Addr:              cfg.Exporter.Listen,

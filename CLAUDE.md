@@ -118,6 +118,8 @@ go run ./cmd/certinv serve --config config.yaml
 - 1つのPRは1つの関心事に絞る。パイプラインの複数段を同時に変更しない
 - 新機能には必ずテストを添える
 - `docs/design.md` に反する実装をする場合は、先に design.md を更新するPRを分ける
+- ユーザーから見える挙動（CLIコマンド・フラグ・出力・設定項目）を追加/変更した場合は
+  同じPRで README.md の該当箇所も更新する
 
 ## 参照
 

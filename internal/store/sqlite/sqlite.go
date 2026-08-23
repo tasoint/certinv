@@ -303,6 +303,84 @@ func (s *Store) MetricsSnapshot(ctx context.Context) (store.MetricsSnapshot, err
 	return store.MetricsSnapshot{Certificates: certificates, Hosts: hosts}, nil
 }
 
+func (s *Store) InventorySnapshot(ctx context.Context) (store.InventorySnapshot, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT
+  h.hostname,
+  h.port,
+  h.apex,
+  h.source,
+  h.status,
+  h.first_seen_at,
+  COALESCE(h.last_resolved_at, ''),
+  COALESCE(h.last_probed_at, ''),
+  COALESCE(c.fingerprint, ''),
+  COALESCE(cs.state, ''),
+  COALESCE(c.subject_cn, ''),
+  COALESCE(c.issuer_cn, ''),
+  COALESCE(c.issuer_org, ''),
+  COALESCE(c.not_before, ''),
+  COALESCE(c.not_after, ''),
+  COALESCE(c.lifetime_days, 0),
+  COALESCE(c.san_names, '[]'),
+  COALESCE(hc.observed_at, ''),
+  COALESCE(hc.chain_complete, 0),
+  COALESCE(hc.hostname_match, 0),
+  COALESCE(c.last_seen_at, '')
+FROM hosts h
+LEFT JOIN host_certificates hc ON hc.host_id = h.id
+LEFT JOIN certificates c ON c.fingerprint = hc.fingerprint
+LEFT JOIN certificate_states cs ON cs.host_id = h.id AND cs.fingerprint = c.fingerprint
+ORDER BY h.hostname, h.port, c.not_after
+`)
+	if err != nil {
+		return store.InventorySnapshot{}, fmt.Errorf("select inventory snapshot: %w", err)
+	}
+	defer rows.Close()
+
+	var snapshot store.InventorySnapshot
+	for rows.Next() {
+		var row store.InventoryRow
+		var chainComplete int
+		var hostnameMatch int
+		if err := rows.Scan(
+			&row.Hostname,
+			&row.Port,
+			&row.Apex,
+			&row.Source,
+			&row.HostStatus,
+			&row.FirstSeenAt,
+			&row.LastResolvedAt,
+			&row.LastProbedAt,
+			&row.Fingerprint,
+			&row.CertState,
+			&row.SubjectCN,
+			&row.IssuerCN,
+			&row.IssuerOrg,
+			&row.NotBefore,
+			&row.NotAfter,
+			&row.LifetimeDays,
+			&row.SANNames,
+			&row.ObservedAt,
+			&chainComplete,
+			&hostnameMatch,
+			&row.LastSeenAt,
+		); err != nil {
+			return store.InventorySnapshot{}, fmt.Errorf("scan inventory snapshot: %w", err)
+		}
+		row.ChainComplete = chainComplete == 1
+		row.HostnameMatch = hostnameMatch == 1
+		snapshot.Rows = append(snapshot.Rows, row)
+	}
+	if err := rows.Err(); err != nil {
+		return store.InventorySnapshot{}, fmt.Errorf("iterate inventory snapshot: %w", err)
+	}
+	return snapshot, nil
+}
+
 func (s *Store) certificateMetrics(ctx context.Context) ([]store.CertificateMetric, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT fingerprint, COALESCE(issuer_cn, ''), COALESCE(subject_cn, ''), not_before, not_after, lifetime_days
