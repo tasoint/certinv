@@ -320,3 +320,28 @@ func testMetadata(now time.Time, fingerprint string, remainingDays int) certmeta
 		HostnameMatch: true,
 	}
 }
+
+func TestRunnerExcludesSuppressedHostsFromDiscovery(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlitestore.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	if err := db.SuppressHost(ctx, "www.example.com", 443, now); err != nil {
+		t.Fatalf("SuppressHost() error = %v", err)
+	}
+	runner := Runner{
+		Config:  &config.Config{Apexes: []string{"example.com"}},
+		Sources: []discover.Source{fakeSource{hosts: []discover.Host{{Hostname: "www.example.com", Port: 443, Apex: "example.com"}, {Hostname: "api.example.com", Port: 443, Apex: "example.com"}}}},
+		Store:   db,
+	}
+	hosts, err := runner.discover(ctx)
+	if err != nil {
+		t.Fatalf("discover() error = %v", err)
+	}
+	if len(hosts) != 1 || hosts[0].Hostname != "api.example.com" {
+		t.Fatalf("discovered hosts = %#v, want only api.example.com", hosts)
+	}
+}

@@ -16,12 +16,14 @@ func TestStorePersistsHostCertificateLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open() error = %v", err)
 	}
+
 	defer store.Close()
 
 	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
 	if err := store.UpsertApex(ctx, "example.com", now); err != nil {
 		t.Fatalf("UpsertApex() error = %v", err)
 	}
+
 	hostID, err := store.UpsertHost(ctx, discover.Host{
 		Hostname: "www.example.com",
 		Port:     443,
@@ -54,7 +56,6 @@ func TestStorePersistsHostCertificateLink(t *testing.T) {
 	if latest.Fingerprint != certificate.Fingerprint {
 		t.Fatalf("latest fingerprint = %q, want %q", latest.Fingerprint, certificate.Fingerprint)
 	}
-
 	var count int
 	if err := store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM host_certificates`).Scan(&count); err != nil {
 		t.Fatalf("count links: %v", err)
@@ -307,6 +308,40 @@ func TestManagedTargets(t *testing.T) {
 	}
 	if len(targets.Apexes) != 0 || len(targets.ManualHosts) != 0 {
 		t.Fatalf("managed targets after delete = %#v", targets)
+	}
+}
+
+func TestStoreSuppressesHostFromInventory(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	if err := db.UpsertApex(ctx, "example.com", now); err != nil {
+		t.Fatalf("UpsertApex() error = %v", err)
+	}
+	if _, err := db.UpsertHost(ctx, discover.Host{Hostname: "www.example.com", Port: 443, Apex: "example.com", Source: discover.SourceManual}, "active", now); err != nil {
+		t.Fatalf("UpsertHost() error = %v", err)
+	}
+	snapshot, err := db.InventorySnapshot(ctx)
+	if err != nil || len(snapshot.Rows) != 1 {
+		t.Fatalf("InventorySnapshot() before suppress = %#v, %v", snapshot, err)
+	}
+	if err := db.SuppressHost(ctx, "www.example.com", 443, now); err != nil {
+		t.Fatalf("SuppressHost() error = %v", err)
+	}
+	snapshot, err = db.InventorySnapshot(ctx)
+	if err != nil || len(snapshot.Rows) != 0 {
+		t.Fatalf("InventorySnapshot() after suppress = %#v, %v", snapshot, err)
+	}
+	if err := db.UnsuppressHost(ctx, "www.example.com", 443); err != nil {
+		t.Fatalf("UnsuppressHost() error = %v", err)
+	}
+	snapshot, err = db.InventorySnapshot(ctx)
+	if err != nil || len(snapshot.Rows) != 1 {
+		t.Fatalf("InventorySnapshot() after unsuppress = %#v, %v", snapshot, err)
 	}
 }
 

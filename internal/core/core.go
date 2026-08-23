@@ -245,7 +245,23 @@ func (r Runner) discover(ctx context.Context) ([]discover.Host, error) {
 		}
 		groups = append(groups, hosts)
 	}
-	return discover.Merge(groups...), nil
+	hosts := discover.Merge(groups...)
+	suppressed, err := r.Store.SuppressedHosts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("load suppressed hosts: %w", err)
+	}
+	suppressedKeys := make(map[string]struct{}, len(suppressed))
+	for _, host := range suppressed {
+		suppressedKeys[fmt.Sprintf("%s:%d", discover.NormalizeHostname(host.Hostname), host.Port)] = struct{}{}
+	}
+	filtered := hosts[:0]
+	for _, host := range hosts {
+		key := fmt.Sprintf("%s:%d", discover.NormalizeHostname(host.Hostname), host.Port)
+		if _, ok := suppressedKeys[key]; !ok {
+			filtered = append(filtered, host)
+		}
+	}
+	return filtered, nil
 }
 
 func (r Runner) effectiveSources(ctx context.Context) ([]discover.Source, error) {
