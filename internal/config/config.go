@@ -61,7 +61,8 @@ type CrtNameSource struct {
 }
 
 type ZoneSource struct {
-	Files []string `yaml:"files"`
+	Files      []string `yaml:"files"`
+	AllowedDir string   `yaml:"allowed_dir"`
 }
 
 type Probe struct {

@@ -202,21 +202,26 @@ func TestOptionalBasicAuthProtectsUIManagement(t *testing.T) {
 	mux.HandleFunc("/ui/manual-hosts", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusSeeOther)
 	})
+	mux.HandleFunc("/ui/crtname", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusSeeOther)
+	})
 	handler := withOptionalBasicAuth(mux, config.ExporterAuth{Username: "operator", Password: "secret"})
 
-	req := httptest.NewRequest(http.MethodPost, "/ui/manual-hosts", nil)
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("unauthenticated status = %d, want %d", rec.Code, http.StatusUnauthorized)
-	}
+	for _, path := range []string{"/ui/manual-hosts", "/ui/crtname"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%s unauthenticated status = %d, want %d", path, rec.Code, http.StatusUnauthorized)
+		}
 
-	req = httptest.NewRequest(http.MethodPost, "/ui/manual-hosts", nil)
-	req.SetBasicAuth("operator", "secret")
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-	if rec.Code != http.StatusSeeOther {
-		t.Fatalf("authenticated status = %d, want %d", rec.Code, http.StatusSeeOther)
+		req = httptest.NewRequest(http.MethodPost, path, nil)
+		req.SetBasicAuth("operator", "secret")
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusSeeOther {
+			t.Fatalf("%s authenticated status = %d, want %d", path, rec.Code, http.StatusSeeOther)
+		}
 	}
 }
 
