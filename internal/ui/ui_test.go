@@ -66,6 +66,9 @@ func TestHandlerRendersInventory(t *testing.T) {
 	if strings.Contains(body, "PRIVATE KEY") {
 		t.Fatal("body contains forbidden key material marker")
 	}
+	if strings.Contains(body, `name="include_crtname" value="true" checked`) {
+		t.Fatal("include_crtname checkbox is checked by default")
+	}
 }
 
 func TestHandlerRendersTabs(t *testing.T) {
