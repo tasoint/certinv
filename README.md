@@ -67,6 +67,21 @@ go run ./cmd/certinv serve --config config.example.yaml
 `serve` では Prometheus metrics を `/metrics` で提供します。`/ui` で読み取り専用の
 インベントリ一覧を表示し、`/` は `/ui` にリダイレクトします。
 
+`exporter.basic_auth.username` と `exporter.basic_auth.password` の両方を設定すると、
+`/metrics` と `/ui` はBasic認証で保護されます。両方空の場合は認証なしで動作し、
+既存設定との後方互換を維持します。
+
+```yaml
+exporter:
+  listen: :9101
+  basic_auth:
+    username: operator
+    password: change-me
+```
+
+`serve` のHTTPサーバを外部公開する場合は、TLS終端とアクセス制御を行うリバースプロキシ
+配下に置くことを推奨します。
+
 単発FQDNチェック:
 
 ```sh

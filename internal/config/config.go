@@ -98,7 +98,13 @@ type Notifier struct {
 }
 
 type Exporter struct {
-	Listen string `yaml:"listen"`
+	Listen    string       `yaml:"listen"`
+	BasicAuth ExporterAuth `yaml:"basic_auth"`
+}
+
+type ExporterAuth struct {
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 func Load(path string) (*Config, error) {
@@ -237,6 +243,12 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.Exporter.Listen) == "" {
 		return errors.New("exporter.listen is required")
+	}
+	if strings.TrimSpace(c.Exporter.BasicAuth.Username) == "" && strings.TrimSpace(c.Exporter.BasicAuth.Password) != "" {
+		return errors.New("exporter.basic_auth.username is required when password is set")
+	}
+	if strings.TrimSpace(c.Exporter.BasicAuth.Username) != "" && strings.TrimSpace(c.Exporter.BasicAuth.Password) == "" {
+		return errors.New("exporter.basic_auth.password is required when username is set")
 	}
 
 	return nil
