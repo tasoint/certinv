@@ -6,7 +6,7 @@ Certificate Transparency 由来のサブドメイン一覧から到達可能な�
 証明書を収集して有効期限を追跡し、期限切れ前に通知します。
 
 > **開発中です。** 現在は `scan` / `serve` / `check` コマンドを実装しています。
-> `serve` では Prometheus exporter と読み取り専用 Web UI を提供します。
+> `serve` では Prometheus exporter とインベントリ確認・限定的な運用操作を行う Web UI を提供します。
 > 詳細は [docs/status.md](docs/status.md) と [docs/design.md](docs/design.md) を参照してください。
 
 ## 背景
@@ -40,7 +40,7 @@ certinv は **自分が所有・管理するドメイン** の棚卸しに使う
 - SQLite への host / certificate / event 保存
 - 残存率ベースの warn / alert / expired / misconfigured 判定
 - Slack / Webhook 通知（状態遷移時のみ）
-- `serve` モード、Prometheus `/metrics`、読み取り専用 Web UI
+- `serve` モード、Prometheus `/metrics`、インベントリ確認・限定的な運用操作を行う Web UI
 
 ## 使い方
 
@@ -64,8 +64,9 @@ go run ./cmd/certinv scan --config config.example.yaml
 go run ./cmd/certinv serve --config config.example.yaml
 ```
 
-`serve` では Prometheus metrics を `/metrics` で提供します。`/ui` で読み取り専用の
-インベントリ一覧を表示し、`/` は `/ui` にリダイレクトします。
+`serve` では Prometheus metrics を `/metrics` で提供します。`/ui` でインベントリ一覧と
+限定的な運用操作を提供し、`/` は `/ui` にリダイレクトします。UIから手動scanの実行、
+イベント／アラートの確認済み化、apex／manual hostの登録内容管理を行える設計です。
 
 `exporter.basic_auth.username` と `exporter.basic_auth.password` の両方を設定すると、
 `/metrics` と `/ui` はBasic認証で保護されます。両方空の場合は認証なしで動作し、
@@ -96,7 +97,7 @@ DBへの永続化や設定変更は行いません。
 ## やらないこと
 
 - 証明書の発行・更新（certbot / lego / cert-manager をお使いください）
-- 秘密鍵の取り扱い。certinv は読み取り専用です
+- 秘密鍵の取り扱い。UIの運用操作を含め、秘密鍵を読み込む・生成する・保存することはありません
 
 ## ライセンス
 

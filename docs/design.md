@@ -235,11 +235,11 @@ certinv_scan_duration_seconds
 certinv_scan_last_success_timestamp
 ```
 
-### 4.7 Web UI — 読み取り専用インベントリ表示
+### 4.7 Web UI — インベントリ表示と限定的な運用操作
 
-`serve` モードのHTTPサーバに、ブラウザでインベントリを確認するための読み取り専用UIを
-追加する。主目的は「いま何が登録され、どの証明書が危ないか」を人間が素早く確認すること
-であり、設定変更・証明書更新・通知再送などの操作機能は持たせない。
+`serve` モードのHTTPサーバに、ブラウザでインベントリを確認し、限定的な運用操作を行うUIを
+追加する。UIから変更できるのはスキャン実行、イベントの確認状態、対象ホストの登録内容だけ
+であり、証明書の発行・更新や秘密鍵の取り扱いは引き続き行わない。
 
 表示対象は §5 のデータモデルに保存されているメタデータをベースにする。
 
@@ -249,6 +249,18 @@ certinv_scan_last_success_timestamp
   lifetime_days / issuer_cn / issuer_org / subject_cn / SAN / last_seen_at
 - ホストと証明書の紐づき: observed_at / chain_complete / hostname_match
 - scan状況: 最終成功時刻、直近scanの概要（Prometheus exporter と同じ情報を再利用）
+
+優先度の高い操作機能を次の順で追加する。
+
+1. **手動スキャントリガー**: UIから `POST /api/scan` を受け付け、`core.Runner.Run` を
+   非同期で起動する。実行中の重複起動を防ぎ、受付結果と実行状態を返す。スキャンは既存の
+   設定済みapexだけを対象とし、証明書の発行・更新処理は呼び出さない。
+2. **イベント／アラートの確認済み化**: warn / alert のイベントをUIから acknowledged に
+   遷移させる。`events` または `certificate_states` に確認状態、確認者、確認時刻を保持する
+   カラムを追加し、証明書のメタデータや実体は変更しない。
+3. **apex／manual host の追加・削除**: UIから対象ドメインと手動登録ホストを管理する。
+   設定ファイルを直接書き換えるのではなく、`apexes` と `hosts` をDB側の管理情報として扱う
+   方式を検討する。追加・削除時も §2 のスコープ検証を行い、登録外ドメインは処理しない。
 
 UIは本ツールの絶対ルールに従い、証明書の生DER/PEMや秘密鍵素材を表示しない。
 出力してよいのは fingerprint、SAN、CN、issuer、有効期限、状態などのメタデータに限る。
@@ -446,7 +458,7 @@ exporter:            # serve モードのみ
 | v0.3 | `serve` モード。スケジューラ + Prometheus exporter |
 | v0.4 | DNSゾーンファイル取り込み。自動化推定レポート |
 | v0.5 | ARI 対応。大規模向けの並列度・ストレージ最適化 |
-| v0.6 | `serve` モードに読み取り専用Web UIを追加 |
+| v0.6 | `serve` モードにWeb UIを追加 |
 
 ---
 
