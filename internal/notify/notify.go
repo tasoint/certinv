@@ -61,7 +61,6 @@ type httpNotifier struct {
 	events     []string
 	client     *http.Client
 	build      payloadFunc
-	retryAfter time.Duration
 }
 
 func newHTTPNotifier(name, url string, events []string, build payloadFunc, opts ...Option) *httpNotifier {
