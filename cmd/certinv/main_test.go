@@ -211,6 +211,12 @@ func TestOptionalBasicAuthProtectsUIManagement(t *testing.T) {
 	mux.HandleFunc("/ui/hosts/purge", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusSeeOther)
 	})
+	mux.HandleFunc("/ui/hosts/suppress-all", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusSeeOther)
+	})
+	mux.HandleFunc("/ui/hosts/purge-all", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusSeeOther)
+	})
 	mux.HandleFunc("/ui/crtname/lookup", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusSeeOther)
 	})
@@ -219,7 +225,7 @@ func TestOptionalBasicAuthProtectsUIManagement(t *testing.T) {
 	})
 	handler := withOptionalBasicAuth(mux, config.ExporterAuth{Username: "operator", Password: "secret"})
 
-	for _, path := range []string{"/ui/manual-hosts", "/ui/manual-hosts/edit", "/ui/crtname", "/ui/hosts/purge", "/ui/crtname/lookup", "/ui/crtname/add-selected"} {
+	for _, path := range []string{"/ui/manual-hosts", "/ui/manual-hosts/edit", "/ui/crtname", "/ui/hosts/purge", "/ui/hosts/suppress-all", "/ui/hosts/purge-all", "/ui/crtname/lookup", "/ui/crtname/add-selected"} {
 		req := httptest.NewRequest(http.MethodPost, path, nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)

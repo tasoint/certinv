@@ -43,7 +43,8 @@ func TestHandlerRendersInventory(t *testing.T) {
 				HostnameMatch: true,
 			},
 		}},
-		events: []store.StoredEvent{{ID: 7, Event: evaluate.Event{Kind: evaluate.EventWarn, Fingerprint: "abcdef1234567890", Detail: "expiring"}}},
+		events:     []store.StoredEvent{{ID: 7, Event: evaluate.Event{Kind: evaluate.EventWarn, Fingerprint: "abcdef1234567890", Detail: "expiring"}}},
+		suppressed: []store.SuppressedHost{{Hostname: "old.example.com", Port: 443}},
 	}, WithConfigTargets([]string{"example.com"}, nil))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -57,7 +58,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "expiring", "/ui/events/7/ack", "/ui/scan", "saved", "problem"} {
+	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "remaining validity ratio", "expiring", "/ui/events/7/ack", "/ui/scan", "All clear", "/ui/hosts/suppress-all", "Purge all", "/ui/hosts/purge-all", "saved", "problem"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
@@ -666,12 +667,14 @@ type fakeStore struct {
 	ackBy           string
 	ackErr          error
 	suppressKey     string
+	suppressedKeys  []string
 	discovery       store.ManagedDiscovery
 	crtNameEnabled  bool
 	crtNameEndpoint string
 	addedZoneFile   string
 	deletedZoneFile string
 	purgedHost      string
+	purgedHosts     []string
 }
 
 func (s fakeStore) InventorySnapshot(context.Context) (store.InventorySnapshot, error) {
@@ -719,6 +722,7 @@ func (s *fakeStore) SuppressedHosts(context.Context) ([]store.SuppressedHost, er
 
 func (s *fakeStore) SuppressHost(_ context.Context, hostname string, port int, _ time.Time) error {
 	s.suppressKey = hostname + ":" + strconv.Itoa(port)
+	s.suppressedKeys = append(s.suppressedKeys, s.suppressKey)
 	return nil
 }
 
@@ -729,6 +733,7 @@ func (s *fakeStore) UnsuppressHost(_ context.Context, hostname string, port int)
 
 func (s *fakeStore) PurgeHost(_ context.Context, hostname string, port int) error {
 	s.purgedHost = hostname + ":" + strconv.Itoa(port)
+	s.purgedHosts = append(s.purgedHosts, s.purgedHost)
 	return nil
 }
 
@@ -787,6 +792,25 @@ func TestHandlerSuppressesAndUnsuppressesHost(t *testing.T) {
 	}
 }
 
+func TestHandlerSuppressesAllInventoryHosts(t *testing.T) {
+	fake := &fakeStore{snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
+		{Hostname: "www.example.com", Port: 443},
+		{Hostname: "api.example.com", Port: 8443},
+	}}}
+	handler, err := New(fake)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	rec := httptest.NewRecorder()
+	handler.serveSuppressAllHosts(rec, httptest.NewRequest(http.MethodPost, "/ui/hosts/suppress-all", nil))
+	if rec.Code != http.StatusSeeOther || len(fake.suppressedKeys) != 2 {
+		t.Fatalf("status/suppressed = %d/%#v", rec.Code, fake.suppressedKeys)
+	}
+	if fake.suppressedKeys[0] != "www.example.com:443" || fake.suppressedKeys[1] != "api.example.com:8443" {
+		t.Fatalf("suppressed keys = %#v", fake.suppressedKeys)
+	}
+}
+
 func TestHandlerPurgesSuppressedHost(t *testing.T) {
 	fake := &fakeStore{}
 	handler, err := New(fake)
@@ -797,6 +821,25 @@ func TestHandlerPurgesSuppressedHost(t *testing.T) {
 	handler.servePurgeHost(rec, formRequest("/ui/hosts/purge", "hostname=www.example.com&port=443"))
 	if rec.Code != http.StatusSeeOther || fake.purgedHost != "www.example.com:443" {
 		t.Fatalf("purge status/host = %d/%q", rec.Code, fake.purgedHost)
+	}
+}
+
+func TestHandlerPurgesAllSuppressedHosts(t *testing.T) {
+	fake := &fakeStore{suppressed: []store.SuppressedHost{
+		{Hostname: "old.example.com", Port: 443},
+		{Hostname: "gone.example.com", Port: 8443},
+	}}
+	handler, err := New(fake)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	rec := httptest.NewRecorder()
+	handler.servePurgeAllHosts(rec, httptest.NewRequest(http.MethodPost, "/ui/hosts/purge-all", nil))
+	if rec.Code != http.StatusSeeOther || len(fake.purgedHosts) != 2 {
+		t.Fatalf("status/purged = %d/%#v", rec.Code, fake.purgedHosts)
+	}
+	if fake.purgedHosts[0] != "old.example.com:443" || fake.purgedHosts[1] != "gone.example.com:8443" {
+		t.Fatalf("purged hosts = %#v", fake.purgedHosts)
 	}
 }
 

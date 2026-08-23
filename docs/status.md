@@ -36,11 +36,14 @@
 ## 実装済みの追加機能
 
 - UIに未確認の warn / alert イベント一覧を表示
+- Unacknowledged alertsには、残存率がwarn/alert閾値をまたいだイベントが表示される旨を説明
 - Basic認証で保護されたPOSTエンドポイントからイベントを acknowledged に変更
 - 確認状態は `events.acknowledged_at` / `acknowledged_by` に保存し、証明書情報は変更しない
 - UIからホストを suppress し、次回以降の discovery / scan とインベントリ一覧から除外
+- `All clear` で現在表示中の全inventory hostを一括suppress可能
 - `Suppressed hosts` セクションから unsuppress して復元可能
 - `Suppressed hosts` セクションからhost記録と証明書紐付けをpurge可能
+- `Purge all` でsuppressed host記録を一括purge可能
 - crt.name lookupはDNS解決やTLS probeを行わず、選択したapex内かつ未登録の候補ホスト名だけを表示する
 - Lookup nowはフォーム上のenabled/endpointを一時的に使い、Save crt.nameで保存した設定は次回scan用として別表示する
 - Run scan nowのInclude crt.nameは保存設定を変更せず、その1回の手動scanだけを上書きする
