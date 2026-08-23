@@ -62,9 +62,9 @@ func TestHandlerExportsStoreAndScanMetrics(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		"certinv_cert_not_after_timestamp",
-		"certinv_cert_lifetime_days",
-		"certinv_cert_remaining_ratio",
+		`certinv_cert_not_after_timestamp{common_name="www.example.com",fingerprint="abc123",issuer="Test CA"}`,
+		`certinv_cert_lifetime_days{common_name="www.example.com",fingerprint="abc123",issuer="Test CA"}`,
+		`certinv_cert_remaining_ratio{common_name="www.example.com",fingerprint="abc123",issuer="Test CA"}`,
 		"certinv_host_reachable",
 		"certinv_scan_duration_seconds 1.5",
 		"certinv_scan_last_success_timestamp",
