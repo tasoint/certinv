@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"encoding/csv"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,13 +41,76 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com"} {
+	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
 	}
 	if strings.Contains(body, "PRIVATE KEY") {
 		t.Fatal("body contains forbidden key material marker")
+	}
+}
+
+func TestHandlerExportsInventoryCSV(t *testing.T) {
+	handler, err := New(fakeStore{snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
+		{
+			Hostname:       "www.example.com",
+			Port:           443,
+			Apex:           "example.com",
+			Source:         "manual",
+			HostStatus:     "active",
+			CertState:      "healthy",
+			Fingerprint:    "abcdef1234567890",
+			SubjectCN:      "www.example.com",
+			IssuerCN:       "Test CA",
+			IssuerOrg:      "Example Org",
+			NotBefore:      "2026-08-23T00:00:00Z",
+			NotAfter:       "2026-11-17T12:44:20Z",
+			SANNames:       `["www.example.com","example.com"]`,
+			ChainComplete:  true,
+			HostnameMatch:  true,
+			FirstSeenAt:    "2026-08-23T00:00:00Z",
+			LastResolvedAt: "2026-08-23T00:01:00Z",
+			LastProbedAt:   "2026-08-23T00:02:00Z",
+			LastSeenAt:     "2026-08-23T00:03:00Z",
+			ObservedAt:     "2026-08-23T00:04:00Z",
+		},
+	}}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/ui/export.csv", nil)
+	rec := httptest.NewRecorder()
+	handler.serveExportCSV(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "text/csv; charset=utf-8" {
+		t.Fatalf("Content-Type = %q, want text/csv", got)
+	}
+	records, err := csv.NewReader(strings.NewReader(rec.Body.String())).ReadAll()
+	if err != nil {
+		t.Fatalf("read csv: %v", err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("csv rows = %d, want 2: %#v", len(records), records)
+	}
+	header := strings.Join(records[0], ",")
+	for _, want := range []string{"host", "port", "apex", "issuer_cn", "fingerprint", "san", "observed_at"} {
+		if !strings.Contains(header, want) {
+			t.Fatalf("header missing %q: %s", want, header)
+		}
+	}
+	row := records[1]
+	for _, want := range []string{"www.example.com", "443", "example.com", "Test CA", "Example Org", "abcdef1234567890", "www.example.com;example.com", "true"} {
+		if !containsCSVField(row, want) {
+			t.Fatalf("row missing %q: %#v", want, row)
+		}
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE KEY") {
+		t.Fatal("csv contains forbidden key material marker")
 	}
 }
 
@@ -65,6 +129,15 @@ func TestHandlerRedirectsRoot(t *testing.T) {
 	if got := rec.Header().Get("Location"); got != "/ui" {
 		t.Fatalf("Location = %q, want /ui", got)
 	}
+}
+
+func containsCSVField(row []string, want string) bool {
+	for _, field := range row {
+		if field == want {
+			return true
+		}
+	}
+	return false
 }
 
 type fakeStore struct {

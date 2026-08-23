@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"encoding/csv"
 	"encoding/json"
 	"html/template"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +37,7 @@ func New(st store.Store) (*Handler, error) {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/", h.redirectRoot)
 	mux.HandleFunc("/ui", h.serveInventory)
+	mux.HandleFunc("/ui/export.csv", h.serveExportCSV)
 }
 
 func (h *Handler) redirectRoot(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +66,37 @@ func (h *Handler) serveInventory(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.template.Execute(w, data); err != nil {
 		http.Error(w, "failed to render inventory", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) serveExportCSV(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", http.MethodGet+", "+http.MethodHead)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	snapshot, err := h.store.InventorySnapshot(r.Context())
+	if err != nil {
+		http.Error(w, "failed to load inventory", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="certinv-inventory.csv"`)
+	writer := csv.NewWriter(w)
+	if err := writer.Write(csvHeader); err != nil {
+		http.Error(w, "failed to write inventory csv", http.StatusInternalServerError)
+		return
+	}
+	for _, row := range snapshot.Rows {
+		if err := writer.Write(csvRow(row)); err != nil {
+			http.Error(w, "failed to write inventory csv", http.StatusInternalServerError)
+			return
+		}
+	}
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		http.Error(w, "failed to write inventory csv", http.StatusInternalServerError)
 	}
 }
 
@@ -95,6 +129,54 @@ func fallback(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+var csvHeader = []string{
+	"host",
+	"port",
+	"apex",
+	"source",
+	"host_status",
+	"cert_state",
+	"not_before",
+	"not_after",
+	"issuer_cn",
+	"issuer_org",
+	"subject_cn",
+	"fingerprint",
+	"san",
+	"chain_complete",
+	"hostname_match",
+	"first_seen_at",
+	"last_resolved_at",
+	"last_probed_at",
+	"last_seen_at",
+	"observed_at",
+}
+
+func csvRow(row store.InventoryRow) []string {
+	return []string{
+		row.Hostname,
+		strconv.Itoa(row.Port),
+		row.Apex,
+		row.Source,
+		row.HostStatus,
+		row.CertState,
+		row.NotBefore,
+		row.NotAfter,
+		row.IssuerCN,
+		row.IssuerOrg,
+		row.SubjectCN,
+		row.Fingerprint,
+		strings.Join(splitSAN(row.SANNames), ";"),
+		strconv.FormatBool(row.ChainComplete),
+		strconv.FormatBool(row.HostnameMatch),
+		row.FirstSeenAt,
+		row.LastResolvedAt,
+		row.LastProbedAt,
+		row.LastSeenAt,
+		row.ObservedAt,
+	}
 }
 
 const pageTemplate = `<!doctype html>
@@ -137,6 +219,20 @@ const pageTemplate = `<!doctype html>
       margin-top: 4px;
       color: var(--muted);
       font-size: 13px;
+    }
+    .actions {
+      margin-top: 10px;
+    }
+    .button {
+      display: inline-block;
+      padding: 6px 10px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: #eef2f6;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 650;
     }
     main {
       padding: 20px 24px 28px;
@@ -204,6 +300,7 @@ const pageTemplate = `<!doctype html>
   <header>
     <h1>certinv inventory</h1>
     <div class="meta">Generated at {{.GeneratedAt}}. Read-only view.</div>
+    <div class="actions"><a class="button" href="/ui/export.csv">Download CSV</a></div>
   </header>
   <main>
     {{if .Rows}}

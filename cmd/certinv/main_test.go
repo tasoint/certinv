@@ -125,3 +125,26 @@ func TestOptionalBasicAuthRejectsInvalidCredentials(t *testing.T) {
 		t.Fatalf("WWW-Authenticate = %q, want Basic realm", got)
 	}
 }
+
+func TestOptionalBasicAuthProtectsUIExport(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ui/export.csv", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := withOptionalBasicAuth(mux, config.ExporterAuth{Username: "operator", Password: "secret"})
+
+	req := httptest.NewRequest(http.MethodGet, "/ui/export.csv", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/ui/export.csv", nil)
+	req.SetBasicAuth("operator", "secret")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("authenticated status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
