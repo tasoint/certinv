@@ -314,6 +314,7 @@ type fakeStore struct {
 	snapshot    store.InventorySnapshot
 	targets     store.ManagedTargets
 	events      []store.StoredEvent
+	suppressed  []store.SuppressedHost
 	err         error
 	addedApex   string
 	deletedApex string
@@ -322,6 +323,7 @@ type fakeStore struct {
 	ackID       int64
 	ackBy       string
 	ackErr      error
+	suppressKey string
 }
 
 func (s fakeStore) InventorySnapshot(context.Context) (store.InventorySnapshot, error) {
@@ -362,6 +364,20 @@ func (s *fakeStore) AcknowledgeEvent(_ context.Context, eventID int64, by string
 	return s.ackErr
 }
 
+func (s *fakeStore) SuppressedHosts(context.Context) ([]store.SuppressedHost, error) {
+	return s.suppressed, s.err
+}
+
+func (s *fakeStore) SuppressHost(_ context.Context, hostname string, port int, _ time.Time) error {
+	s.suppressKey = hostname + ":" + strconv.Itoa(port)
+	return nil
+}
+
+func (s *fakeStore) UnsuppressHost(_ context.Context, hostname string, port int) error {
+	s.suppressKey = "unsuppress:" + hostname + ":" + strconv.Itoa(port)
+	return nil
+}
+
 type fakeScanner struct {
 	accepted bool
 	calls    int
@@ -370,4 +386,22 @@ type fakeScanner struct {
 func (s *fakeScanner) TriggerScan() bool {
 	s.calls++
 	return s.accepted
+}
+
+func TestHandlerSuppressesAndUnsuppressesHost(t *testing.T) {
+	fake := &fakeStore{}
+	handler, err := New(fake)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	rec := httptest.NewRecorder()
+	handler.serveSuppressHost(rec, formRequest("/ui/hosts/suppress", "hostname=www.example.com&port=443"))
+	if rec.Code != http.StatusSeeOther || fake.suppressKey != "www.example.com:443" {
+		t.Fatalf("suppress status/key = %d/%q", rec.Code, fake.suppressKey)
+	}
+	rec = httptest.NewRecorder()
+	handler.serveUnsuppressHost(rec, formRequest("/ui/hosts/unsuppress", "hostname=www.example.com&port=443"))
+	if rec.Code != http.StatusSeeOther || fake.suppressKey != "unsuppress:www.example.com:443" {
+		t.Fatalf("unsuppress status/key = %d/%q", rec.Code, fake.suppressKey)
+	}
 }

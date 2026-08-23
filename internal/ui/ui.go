@@ -84,6 +84,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/ui/apexes/delete", h.serveDeleteApex)
 	mux.HandleFunc("/ui/manual-hosts", h.serveAddManualHost)
 	mux.HandleFunc("/ui/manual-hosts/delete", h.serveDeleteManualHost)
+	mux.HandleFunc("/ui/hosts/suppress", h.serveSuppressHost)
+	mux.HandleFunc("/ui/hosts/unsuppress", h.serveUnsuppressHost)
 }
 
 func (h *Handler) redirectRoot(w http.ResponseWriter, r *http.Request) {
@@ -110,10 +112,16 @@ func (h *Handler) serveInventory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load events", http.StatusInternalServerError)
 		return
 	}
+	suppressed, err := h.store.SuppressedHosts(r.Context())
+	if err != nil {
+		http.Error(w, "failed to load suppressed hosts", http.StatusInternalServerError)
+		return
+	}
 	data := pageData{
 		GeneratedAt: h.now().UTC().Format(time.RFC3339),
 		Rows:        snapshot.Rows,
 		Events:      events,
+		Suppressed:  suppressed,
 		Notice:      r.URL.Query().Get("notice"),
 		Error:       r.URL.Query().Get("error"),
 	}
@@ -215,6 +223,7 @@ func (h *Handler) serveDeleteManualHost(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
 	if err := r.ParseForm(); err != nil {
 		redirectUIError(w, r, "invalid form")
 		return
@@ -263,6 +272,52 @@ func (h *Handler) serveExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) serveSuppressHost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirectUIError(w, r, "invalid form")
+		return
+	}
+	hostname := discover.NormalizeHostname(r.FormValue("hostname"))
+	port, err := parsePort(r.FormValue("port"))
+	if hostname == "" || err != nil {
+		redirectUIError(w, r, "invalid host")
+		return
+	}
+	if err := h.store.SuppressHost(r.Context(), hostname, port, h.now()); err != nil {
+		redirectUIError(w, r, "failed to suppress host")
+		return
+	}
+	redirectUINotice(w, r, "host suppressed")
+}
+
+func (h *Handler) serveUnsuppressHost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirectUIError(w, r, "invalid form")
+		return
+	}
+	hostname := discover.NormalizeHostname(r.FormValue("hostname"))
+	port, err := parsePort(r.FormValue("port"))
+	if hostname == "" || err != nil {
+		redirectUIError(w, r, "invalid host")
+		return
+	}
+	if err := h.store.UnsuppressHost(r.Context(), hostname, port); err != nil {
+		redirectUIError(w, r, "failed to unsuppress host")
+		return
+	}
+	redirectUINotice(w, r, "host unsuppressed")
+}
+
 func (h *Handler) acknowledgeEvent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
@@ -300,6 +355,7 @@ type pageData struct {
 	Rows        []store.InventoryRow
 	Targets     targetRows
 	Events      []store.StoredEvent
+	Suppressed  []store.SuppressedHost
 	Notice      string
 	Error       string
 }
@@ -746,7 +802,7 @@ const pageTemplate = `<!doctype html>
             <td class="san">{{range splitSAN .SANNames}}<div>{{.}}</div>{{else}}<span class="muted">-</span>{{end}}</td>
             <td>{{fallback .LastProbedAt "-"}}</td>
             <td>{{fallback .ObservedAt "-"}}</td>
-            <td>chain={{.ChainComplete}}<br>host={{.HostnameMatch}}</td>
+            <td>chain={{.ChainComplete}}<br>host={{.HostnameMatch}}<br><form method="post" action="/ui/hosts/suppress" onsubmit="return confirm('このホストをインベントリから削除しますか？次回scanでも対象外になります')"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Suppress</button></form></td>
           </tr>
           {{end}}
         </tbody>
@@ -755,6 +811,23 @@ const pageTemplate = `<!doctype html>
     {{else}}
     <div class="empty">No inventory rows yet.</div>
     {{end}}
+      <section>
+        <h2>Suppressed hosts</h2>
+        {{if .Suppressed}}
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Host</th><th>Action</th></tr></thead>
+            <tbody>
+              {{range .Suppressed}}
+              <tr><td>{{.Hostname}}:{{.Port}}</td><td><form method="post" action="/ui/hosts/unsuppress"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Unsuppress</button></form></td></tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+        {{else}}
+        <div class="empty">No suppressed hosts.</div>
+        {{end}}
+      </section>
     </section>
   </main>
 </body>

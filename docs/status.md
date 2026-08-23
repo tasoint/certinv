@@ -36,6 +36,8 @@
 - UIに未確認の warn / alert イベント一覧を表示
 - Basic認証で保護されたPOSTエンドポイントからイベントを acknowledged に変更
 - 確認状態は `events.acknowledged_at` / `acknowledged_by` に保存し、証明書情報は変更しない
+- UIからホストを suppress し、次回以降の discovery / scan とインベントリ一覧から除外
+- `Suppressed hosts` セクションから unsuppress して復元可能
 
 ## 検証コマンド
 

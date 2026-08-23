@@ -386,6 +386,8 @@ FROM hosts h
 LEFT JOIN host_certificates hc ON hc.host_id = h.id
 LEFT JOIN certificates c ON c.fingerprint = hc.fingerprint
 LEFT JOIN certificate_states cs ON cs.host_id = h.id AND cs.fingerprint = c.fingerprint
+LEFT JOIN suppressed_hosts sh ON sh.hostname = h.hostname AND sh.port = h.port
+WHERE sh.hostname IS NULL
 ORDER BY h.hostname, h.port, c.not_after
 `)
 	if err != nil {
@@ -431,6 +433,51 @@ ORDER BY h.hostname, h.port, c.not_after
 		return store.InventorySnapshot{}, fmt.Errorf("iterate inventory snapshot: %w", err)
 	}
 	return snapshot, nil
+}
+
+func (s *Store) SuppressedHosts(ctx context.Context) ([]store.SuppressedHost, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rows, err := s.db.QueryContext(ctx, `SELECT hostname, port FROM suppressed_hosts ORDER BY hostname, port`)
+	if err != nil {
+		return nil, fmt.Errorf("select suppressed hosts: %w", err)
+	}
+	defer rows.Close()
+	var hosts []store.SuppressedHost
+	for rows.Next() {
+		var host store.SuppressedHost
+		if err := rows.Scan(&host.Hostname, &host.Port); err != nil {
+			return nil, fmt.Errorf("scan suppressed host: %w", err)
+		}
+		hosts = append(hosts, host)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate suppressed hosts: %w", err)
+	}
+	return hosts, nil
+}
+
+func (s *Store) SuppressHost(ctx context.Context, hostname string, port int, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO suppressed_hosts (hostname, port, suppressed_at)
+VALUES (?, ?, ?)
+ON CONFLICT(hostname, port) DO UPDATE SET suppressed_at = excluded.suppressed_at
+`, hostname, port, formatTime(now))
+	if err != nil {
+		return fmt.Errorf("suppress host %s:%d: %w", hostname, port, err)
+	}
+	return nil
+}
+
+func (s *Store) UnsuppressHost(ctx context.Context, hostname string, port int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM suppressed_hosts WHERE hostname = ? AND port = ?`, hostname, port); err != nil {
+		return fmt.Errorf("unsuppress host %s:%d: %w", hostname, port, err)
+	}
+	return nil
 }
 
 func (s *Store) ManagedTargets(ctx context.Context) (store.ManagedTargets, error) {
@@ -669,6 +716,12 @@ var schema = []string{
   port            INTEGER NOT NULL DEFAULT 443,
   apex            TEXT NOT NULL,
   added_at        TEXT NOT NULL,
+  PRIMARY KEY (hostname, port)
+)`,
+	`CREATE TABLE IF NOT EXISTS suppressed_hosts (
+  hostname       TEXT NOT NULL,
+  port           INTEGER NOT NULL DEFAULT 443,
+  suppressed_at  TEXT NOT NULL,
   PRIMARY KEY (hostname, port)
 )`,
 	`CREATE TABLE IF NOT EXISTS apexes (
