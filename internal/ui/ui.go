@@ -1592,6 +1592,7 @@ const pageTemplate = `<!doctype html>
     <h2>Inventory</h2>
     <p class="meta">Automation is a heuristic based on certificate lifetime and issuer, not a certainty. Likely automated: short-lived certificate from a known ACME-capable issuer. Likely manual: long-lived certificate from an issuer not on that list. Unknown: insufficient signal.</p>
     {{if .Rows}}
+    <div class="actions" id="inventory-status-summary" aria-label="Cert state summary"></div>
     <div class="actions">
       <input id="inventory-host-filter" placeholder="Filter hostnames">
       <select id="inventory-status-filter">
@@ -1716,8 +1717,37 @@ const pageTemplate = `<!doctype html>
       var prevPage = document.getElementById('inventory-prev-page');
       var nextPage = document.getElementById('inventory-next-page');
       var pageLabel = document.getElementById('inventory-page-label');
+      var statusSummary = document.getElementById('inventory-status-summary');
       var rows = Array.prototype.slice.call(document.querySelectorAll('tr[data-inventory-host]'));
       var currentPage = 1;
+      var statuses = [
+        {value: 'healthy', label: 'Healthy'},
+        {value: 'warn', label: 'Warn'},
+        {value: 'alert', label: 'Alert'},
+        {value: 'expired', label: 'Expired'},
+        {value: 'misconfigured', label: 'Misconfigured'},
+        {value: 'unknown', label: 'Unknown'}
+      ];
+      function renderStatusSummary() {
+        var counts = {};
+        statuses.forEach(function (status) { counts[status.value] = 0; });
+        rows.forEach(function (row) {
+          var state = row.getAttribute('data-cert-state') || 'unknown';
+          counts[state] = (counts[state] || 0) + 1;
+        });
+        statuses.forEach(function (status) {
+          var button = document.createElement('button');
+          button.className = 'state state-' + status.value;
+          button.type = 'button';
+          button.setAttribute('data-inventory-status-summary', status.value);
+          button.textContent = status.label + ' ' + (counts[status.value] || 0);
+          button.addEventListener('click', function () {
+            statusFilter.value = status.value;
+            resetInventoryPage();
+          });
+          statusSummary.appendChild(button);
+        });
+      }
       function filteredRows() {
         var hostQuery = hostFilter.value.toLowerCase();
         var status = statusFilter.value;
@@ -1758,6 +1788,7 @@ const pageTemplate = `<!doctype html>
         currentPage++;
         applyInventoryFilters();
       });
+      renderStatusSummary();
       applyInventoryFilters();
     }());
   </script>
