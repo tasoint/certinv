@@ -264,26 +264,26 @@ func TestSerialScanRunnerRejectsConcurrentManualScan(t *testing.T) {
 	release := make(chan struct{})
 	done := make(chan struct{})
 	var startedOnce sync.Once
-	scans := newSerialScanRunner(context.Background(), func(context.Context) error {
+	scans := newSerialScanRunner(context.Background(), func(context.Context, *bool) error {
 		startedOnce.Do(func() { close(started) })
 		<-release
 		return nil
 	}, nil)
 
-	if !scans.TriggerScan() {
+	if !scans.TriggerScan(true) {
 		t.Fatal("first TriggerScan() = false, want true")
 	}
 	<-started
 	if !scans.Running() {
 		t.Fatal("Running() = false, want true")
 	}
-	if scans.TriggerScan() {
+	if scans.TriggerScan(true) {
 		t.Fatal("second TriggerScan() = true, want false while running")
 	}
 	close(release)
 	go func() {
 		defer close(done)
-		for !scans.TriggerScan() {
+		for !scans.TriggerScan(true) {
 			time.Sleep(time.Millisecond)
 		}
 	}()
