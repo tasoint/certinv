@@ -1439,7 +1439,7 @@ const pageTemplate = `<!doctype html>
             {{range .Targets.Apexes}}
             <tr>
               <td>{{.Apex}}</td><td>{{displayOrigin .Origin}}</td>
-              <td><form method="post" action="/ui/apexes/crtname?tab=sources"><input type="hidden" name="apex" value="{{.Apex}}"><label><input type="checkbox" name="crtname_enabled" {{if .CrtNameEnabled}}checked{{end}}> Enabled for this apex</label> <button class="button" type="submit">Save</button></form></td>
+              <td><form method="post" action="/ui/apexes/crtname?tab=sources"><input type="hidden" name="apex" value="{{.Apex}}"><label><input type="checkbox" name="crtname_enabled" onchange="this.form.submit()" {{if .CrtNameEnabled}}checked{{end}}> Enabled for this apex</label></form></td>
               <td>{{if .CanDelete}}<form method="post" action="/ui/apexes/delete?tab=sources"><input type="hidden" name="apex" value="{{.Apex}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config.yaml</span>{{end}}</td>
             </tr>
             {{end}}
