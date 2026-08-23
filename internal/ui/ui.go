@@ -33,7 +33,7 @@ type Handler struct {
 }
 
 type ScanTrigger interface {
-	TriggerScan() bool
+	TriggerScan(includeCrtName bool) bool
 	Running() bool
 }
 
@@ -152,7 +152,14 @@ func (h *Handler) serveScan(w http.ResponseWriter, r *http.Request) {
 		redirectUIError(w, r, "scan trigger is not configured")
 		return
 	}
-	if !h.scanner.TriggerScan() {
+	includeCrtName := h.sources.CrtNameEnabled
+	if managed, err := h.store.ManagedDiscovery(r.Context()); err == nil && managed.CrtNameSet {
+		includeCrtName = managed.CrtNameEnabled
+	}
+	if err := r.ParseForm(); err == nil {
+		_, includeCrtName = r.Form["include_crtname"]
+	}
+	if !h.scanner.TriggerScan(includeCrtName) {
 		redirectUIError(w, r, "scan is already running")
 		return
 	}
@@ -1411,7 +1418,7 @@ const pageTemplate = `<!doctype html>
     {{else}}
     <section>
     <div class="actions">
-      <form method="post" action="/ui/scan" style="display:inline"><button class="button" type="submit">Run scan now</button></form>
+      <form method="post" action="/ui/scan" style="display:inline"><label><input type="checkbox" name="include_crtname" value="true" {{if .Sources.CrtName.Enabled}}checked{{end}}> Include crt.name</label> <button class="button" type="submit">Run scan now</button></form>
       <a class="button" href="/ui/export.csv">Download CSV</a>
     </div>
     </section>

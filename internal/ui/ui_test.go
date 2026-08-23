@@ -449,6 +449,25 @@ func TestHandlerAcceptsManualScan(t *testing.T) {
 	}
 }
 
+func TestHandlerPassesCrtNameScanOverride(t *testing.T) {
+	scanner := &fakeScanner{accepted: true}
+	handler, err := New(&fakeStore{}, WithScanTrigger(scanner))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/ui/scan", strings.NewReader("include_crtname=true"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	handler.serveScan(httptest.NewRecorder(), req)
+	if !scanner.include {
+		t.Fatal("include_crtname=false, want true")
+	}
+	req = httptest.NewRequest(http.MethodPost, "/ui/scan", nil)
+	handler.serveScan(httptest.NewRecorder(), req)
+	if scanner.include {
+		t.Fatal("unchecked include_crtname=true, want false")
+	}
+}
+
 func TestHandlerRejectsManualScanWhenRunning(t *testing.T) {
 	handler, err := New(&fakeStore{}, WithScanTrigger(&fakeScanner{accepted: false}))
 	if err != nil {
@@ -737,10 +756,12 @@ type fakeScanner struct {
 	accepted bool
 	running  bool
 	calls    int
+	include  bool
 }
 
-func (s *fakeScanner) TriggerScan() bool {
+func (s *fakeScanner) TriggerScan(include bool) bool {
 	s.calls++
+	s.include = include
 	return s.accepted
 }
 

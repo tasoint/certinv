@@ -43,6 +43,7 @@
 - `Suppressed hosts` セクションからhost記録と証明書紐付けをpurge可能
 - crt.name lookupはDNS解決やTLS probeを行わず、選択したapex内かつ未登録の候補ホスト名だけを表示する
 - Lookup nowはフォーム上のenabled/endpointを一時的に使い、Save crt.nameで保存した設定は次回scan用として別表示する
+- Run scan nowのInclude crt.nameは保存設定を変更せず、その1回の手動scanだけを上書きする
 
 ## 検証コマンド
 

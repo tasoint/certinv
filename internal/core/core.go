@@ -38,16 +38,17 @@ type Summary struct {
 }
 
 type Runner struct {
-	Config    *config.Config
-	Sources   []discover.Source
-	Resolver  resolve.Resolver
-	Prober    probe.Prober
-	Store     store.Store
-	Notifiers []notify.Notifier
-	Recorder  ScanRecorder
-	Now       func() time.Time
-	Logger    *slog.Logger
-	Out       io.Writer
+	Config          *config.Config
+	Sources         []discover.Source
+	Resolver        resolve.Resolver
+	Prober          probe.Prober
+	Store           store.Store
+	Notifiers       []notify.Notifier
+	Recorder        ScanRecorder
+	Now             func() time.Time
+	Logger          *slog.Logger
+	Out             io.Writer
+	CrtNameOverride *bool
 }
 
 type ScanRecorder interface {
@@ -87,6 +88,19 @@ func NewRunner(cfg *config.Config, st store.Store, out io.Writer, logger *slog.L
 }
 
 func (r Runner) Run(ctx context.Context) (summary Summary, err error) {
+	return r.run(ctx)
+}
+
+type RunOptions struct {
+	CrtNameEnabled *bool
+}
+
+func (r Runner) RunWithOptions(ctx context.Context, options RunOptions) (Summary, error) {
+	r.CrtNameOverride = options.CrtNameEnabled
+	return r.run(ctx)
+}
+
+func (r Runner) run(ctx context.Context) (summary Summary, err error) {
 	if r.Config == nil {
 		return Summary{}, fmt.Errorf("config is required")
 	}
@@ -276,6 +290,9 @@ func (r Runner) effectiveSources(ctx context.Context) ([]discover.Source, error)
 		crtNameEnabled = managed.CrtNameEnabled
 		if managed.CrtNameEndpoint != "" {
 			crtNameEndpoint = managed.CrtNameEndpoint
+		}
+		if r.CrtNameOverride != nil {
+			crtNameEnabled = *r.CrtNameOverride
 		}
 	}
 	if crtNameEnabled {

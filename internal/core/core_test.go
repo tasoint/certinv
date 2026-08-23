@@ -224,6 +224,7 @@ func TestRunnerAppliesManagedDiscoverySettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
+
 	defer db.Close()
 
 	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
@@ -250,6 +251,32 @@ func TestRunnerAppliesManagedDiscoverySettings(t *testing.T) {
 	}
 	if len(sources) != 1 || sources[0].Name() != discover.SourceZone {
 		t.Fatalf("sources = %#v, want managed zone only", sources)
+	}
+}
+
+func TestRunnerCrtNameOverrideIsPerRun(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlitestore.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.SaveManagedCrtName(ctx, false, "https://crt.example/search", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Config: &config.Config{Discovery: config.Discovery{CrtName: config.CrtNameSource{Endpoint: "https://crt.name/v1/search"}}}, Store: db}
+	if got, err := runner.effectiveSources(ctx); err != nil || len(got) != 0 {
+		t.Fatalf("scheduled sources = %#v, %v", got, err)
+	}
+	enabled := true
+	runner.CrtNameOverride = &enabled
+	if got, err := runner.effectiveSources(ctx); err != nil || len(got) != 1 || got[0].Name() != discover.SourceCrtName {
+		t.Fatalf("enabled override sources = %#v, %v", got, err)
+	}
+	disabled := false
+	runner.CrtNameOverride = &disabled
+	if got, err := runner.effectiveSources(ctx); err != nil || len(got) != 0 {
+		t.Fatalf("disabled override sources = %#v, %v", got, err)
 	}
 }
 
