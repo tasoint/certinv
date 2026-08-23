@@ -68,7 +68,9 @@ func TestHandlerRendersInventory(t *testing.T) {
 }
 
 func TestHandlerRendersTabs(t *testing.T) {
-	handler, err := New(&fakeStore{}, WithConfigTargets([]string{"example.com"}, nil), WithSourceConfig(config.Discovery{
+	handler, err := New(&fakeStore{targets: store.ManagedTargets{ManualHosts: []store.ManagedManualHost{
+		{Hostname: "db.example.com", Port: 8443, Apex: "example.com", Source: "db"},
+	}}}, WithConfigTargets([]string{"example.com"}, nil), WithSourceConfig(config.Discovery{
 		Sources: []string{discover.SourceCrtName},
 		CrtName: config.CrtNameSource{Endpoint: "https://crt.name/v1/search"},
 	}))
@@ -83,7 +85,7 @@ func TestHandlerRendersTabs(t *testing.T) {
 		t.Fatalf("sources status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"crt.name discovery", "Zone files", "Add apex", "Saved setting:", "Saving applies this setting", "example.com"} {
+	for _, want := range []string{"Apexes", "Manual hosts", "crt.name discovery", "Zone files", "Add apex", "Add manual host", "/ui/manual-hosts/edit", "Update port", "Saved setting:", "Saving applies this setting", "example.com"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("sources tab missing %q:\n%s", want, body)
 		}
