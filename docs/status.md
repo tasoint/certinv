@@ -31,6 +31,12 @@
 - `/ui/scan` によるUIからの手動scan即時実行（二重起動防止あり）
 - UIからのDB管理apex/manual hostオーバーレイ追加・削除（config.yaml由来は変更しない）
 
+## 実装済みの追加機能
+
+- UIに未確認の warn / alert イベント一覧を表示
+- Basic認証で保護されたPOSTエンドポイントからイベントを acknowledged に変更
+- 確認状態は `events.acknowledged_at` / `acknowledged_by` に保存し、証明書情報は変更しない
+
 ## 検証コマンド
 
 ```sh

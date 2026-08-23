@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/tasoint/certinv/internal/discover"
+	"github.com/tasoint/certinv/internal/evaluate"
 	"github.com/tasoint/certinv/internal/store"
 )
 
@@ -39,6 +40,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 				HostnameMatch: true,
 			},
 		}},
+		events: []store.StoredEvent{{ID: 7, Event: evaluate.Event{Kind: evaluate.EventWarn, Fingerprint: "abcdef1234567890", Detail: "expiring"}}},
 	}, WithConfigTargets([]string{"example.com"}, nil))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -52,7 +54,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "/ui/scan", "managed.example.net", "db.example.com:8443"} {
+	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "expiring", "/ui/events/7/ack", "/ui/scan", "managed.example.net", "db.example.com:8443"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
@@ -230,6 +232,38 @@ func TestHandlerRedirectsRoot(t *testing.T) {
 	}
 }
 
+func TestHandlerAcknowledgesEvent(t *testing.T) {
+	fake := &fakeStore{}
+	handler, err := New(fake)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/ui/events/7/ack", nil)
+	req.SetBasicAuth("operator", "secret")
+	rec := httptest.NewRecorder()
+	handler.acknowledgeEvent(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	if fake.ackID != 7 || fake.ackBy != "operator" {
+		t.Fatalf("acknowledgement = id %d by %q, want id 7 by operator", fake.ackID, fake.ackBy)
+	}
+}
+
+func TestHandlerAcknowledgeMissingEvent(t *testing.T) {
+	handler, err := New(&fakeStore{ackErr: store.ErrEventNotFound})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/ui/events/999/ack", nil)
+	rec := httptest.NewRecorder()
+	handler.acknowledgeEvent(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
 func containsCSVField(row []string, want string) bool {
 	for _, field := range row {
 		if field == want {
@@ -243,11 +277,15 @@ type fakeStore struct {
 	store.Store
 	snapshot    store.InventorySnapshot
 	targets     store.ManagedTargets
+	events      []store.StoredEvent
 	err         error
 	addedApex   string
 	deletedApex string
 	addedHost   discover.Host
 	deletedHost string
+	ackID       int64
+	ackBy       string
+	ackErr      error
 }
 
 func (s fakeStore) InventorySnapshot(context.Context) (store.InventorySnapshot, error) {
@@ -276,6 +314,16 @@ func (s *fakeStore) AddManagedManualHost(_ context.Context, host discover.Host, 
 func (s *fakeStore) DeleteManagedManualHost(_ context.Context, hostname string, port int) error {
 	s.deletedHost = hostname + ":" + strconv.Itoa(port)
 	return nil
+}
+
+func (s *fakeStore) UnacknowledgedEvents(context.Context) ([]store.StoredEvent, error) {
+	return s.events, s.err
+}
+
+func (s *fakeStore) AcknowledgeEvent(_ context.Context, eventID int64, by string, _ time.Time) error {
+	s.ackID = eventID
+	s.ackBy = by
+	return s.ackErr
 }
 
 type fakeScanner struct {

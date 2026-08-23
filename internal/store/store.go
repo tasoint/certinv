@@ -2,12 +2,15 @@ package store
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	certmeta "github.com/tasoint/certinv/internal/cert"
 	"github.com/tasoint/certinv/internal/discover"
 	"github.com/tasoint/certinv/internal/evaluate"
 )
+
+var ErrEventNotFound = errors.New("event not found")
 
 type Store interface {
 	UpsertApex(ctx context.Context, apex string, now time.Time) error
@@ -21,6 +24,8 @@ type Store interface {
 	SetCertificateState(ctx context.Context, hostID int64, fingerprint, state string, now time.Time) error
 	RecordEvent(ctx context.Context, event evaluate.Event, now time.Time) (int64, error)
 	PendingEvents(ctx context.Context) ([]StoredEvent, error)
+	UnacknowledgedEvents(ctx context.Context) ([]StoredEvent, error)
+	AcknowledgeEvent(ctx context.Context, eventID int64, by string, now time.Time) error
 	MarkEventNotified(ctx context.Context, eventID int64, now time.Time) error
 	MetricsSnapshot(ctx context.Context) (MetricsSnapshot, error)
 	InventorySnapshot(ctx context.Context) (InventorySnapshot, error)
@@ -33,7 +38,9 @@ type Store interface {
 }
 
 type StoredEvent struct {
-	ID int64
+	ID             int64
+	AcknowledgedAt string
+	AcknowledgedBy string
 	evaluate.Event
 }
 

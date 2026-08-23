@@ -115,6 +115,31 @@ func TestStorePersistsStateAndEvent(t *testing.T) {
 	if pending[0].ID != eventID || pending[0].Kind != evaluate.EventWarn {
 		t.Fatalf("pending event = %#v, want id %d kind %s", pending[0], eventID, evaluate.EventWarn)
 	}
+	unacknowledged, err := store.UnacknowledgedEvents(ctx)
+	if err != nil {
+		t.Fatalf("UnacknowledgedEvents() error = %v", err)
+	}
+	if len(unacknowledged) != 1 || unacknowledged[0].ID != eventID {
+		t.Fatalf("unacknowledged events = %#v, want event %d", unacknowledged, eventID)
+	}
+	if err := store.AcknowledgeEvent(ctx, eventID, "operator", now); err != nil {
+		t.Fatalf("AcknowledgeEvent() error = %v", err)
+	}
+	unacknowledged, err = store.UnacknowledgedEvents(ctx)
+	if err != nil {
+		t.Fatalf("UnacknowledgedEvents() after acknowledge error = %v", err)
+	}
+	if len(unacknowledged) != 0 {
+		t.Fatalf("unacknowledged events after acknowledge = %#v, want none", unacknowledged)
+	}
+	var acknowledgedAt, acknowledgedBy string
+	if err := store.db.QueryRowContext(ctx, `SELECT acknowledged_at, acknowledged_by FROM events WHERE id = ?`, eventID).
+		Scan(&acknowledgedAt, &acknowledgedBy); err != nil {
+		t.Fatalf("select acknowledgement: %v", err)
+	}
+	if acknowledgedAt == "" || acknowledgedBy != "operator" {
+		t.Fatalf("acknowledgement = %q by %q, want timestamp by operator", acknowledgedAt, acknowledgedBy)
+	}
 	if err := store.MarkEventNotified(ctx, eventID, now); err != nil {
 		t.Fatalf("MarkEventNotified() error = %v", err)
 	}
