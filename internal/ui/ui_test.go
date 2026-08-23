@@ -46,7 +46,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/ui", nil)
+	req := httptest.NewRequest(http.MethodGet, "/ui?notice=saved&error=problem", nil)
 	rec := httptest.NewRecorder()
 	handler.serveInventory(rec, req)
 
@@ -54,7 +54,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "expiring", "/ui/events/7/ack", "/ui/scan", "managed.example.net", "db.example.com:8443"} {
+	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "expiring", "/ui/events/7/ack", "/ui/scan", "managed.example.net", "db.example.com:8443", "saved", "problem"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
@@ -75,7 +75,7 @@ func TestHandlerAddsAndDeletesManagedTargets(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	handler.serveAddApex(rec, req)
-	if rec.Code != http.StatusSeeOther || store.addedApex != "example.net" {
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "/ui?notice=") || store.addedApex != "example.net" {
 		t.Fatalf("add apex status=%d added=%q", rec.Code, store.addedApex)
 	}
 
@@ -83,7 +83,7 @@ func TestHandlerAddsAndDeletesManagedTargets(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec = httptest.NewRecorder()
 	handler.serveAddManualHost(rec, req)
-	if rec.Code != http.StatusSeeOther || store.addedHost.Hostname != "www.example.com" || store.addedHost.Port != 8443 {
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "/ui?notice=") || store.addedHost.Hostname != "www.example.com" || store.addedHost.Port != 8443 {
 		t.Fatalf("add host status=%d host=%#v", rec.Code, store.addedHost)
 	}
 
@@ -91,7 +91,7 @@ func TestHandlerAddsAndDeletesManagedTargets(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec = httptest.NewRecorder()
 	handler.serveDeleteManualHost(rec, req)
-	if rec.Code != http.StatusSeeOther || store.deletedHost != "www.example.com:8443" {
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "/ui?notice=") || store.deletedHost != "www.example.com:8443" {
 		t.Fatalf("delete host status=%d deleted=%q", rec.Code, store.deletedHost)
 	}
 }
@@ -107,8 +107,8 @@ func TestHandlerRejectsManualHostOutsideApex(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	handler.serveAddManualHost(rec, req)
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", rec.Code)
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "/ui?error=") {
+		t.Fatalf("status/location = %d/%q, want 303 error redirect", rec.Code, rec.Header().Get("Location"))
 	}
 }
 
@@ -123,14 +123,11 @@ func TestHandlerAcceptsManualScan(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.serveScan(rec, req)
 
-	if rec.Code != http.StatusAccepted {
-		t.Fatalf("status = %d, want 202", rec.Code)
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "/ui?notice=") {
+		t.Fatalf("status/location = %d/%q, want 303 notice redirect", rec.Code, rec.Header().Get("Location"))
 	}
 	if scanner.calls != 1 {
 		t.Fatalf("scan calls = %d, want 1", scanner.calls)
-	}
-	if !strings.Contains(rec.Body.String(), "scan accepted") {
-		t.Fatalf("body missing acceptance message: %s", rec.Body.String())
 	}
 }
 
@@ -144,11 +141,44 @@ func TestHandlerRejectsManualScanWhenRunning(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.serveScan(rec, req)
 
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409", rec.Code)
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "/ui?error=") {
+		t.Fatalf("status/location = %d/%q, want 303 error redirect", rec.Code, rec.Header().Get("Location"))
 	}
-	if !strings.Contains(rec.Body.String(), "already running") {
-		t.Fatalf("body missing running message: %s", rec.Body.String())
+}
+
+func TestHandlerRedirectsActionValidationErrors(t *testing.T) {
+	handler, err := New(&fakeStore{}, WithConfigTargets([]string{"example.com"}, nil))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	for name, tc := range map[string]struct {
+		req   *http.Request
+		serve func(http.ResponseWriter, *http.Request)
+	}{
+		"add apex": {
+			req:   formRequest("/ui/apexes", "apex=www.example.com"),
+			serve: handler.serveAddApex,
+		},
+		"delete apex": {
+			req:   formRequest("/ui/apexes/delete", "apex=www.example.com"),
+			serve: handler.serveDeleteApex,
+		},
+		"add manual host": {
+			req:   formRequest("/ui/manual-hosts", "hostname=www.example.net&port=443"),
+			serve: handler.serveAddManualHost,
+		},
+		"delete manual host": {
+			req:   formRequest("/ui/manual-hosts/delete", "hostname=www.example.com&port=bad"),
+			serve: handler.serveDeleteManualHost,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			tc.serve(rec, tc.req)
+			if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "/ui?error=") {
+				t.Fatalf("status/location = %d/%q, want 303 error redirect", rec.Code, rec.Header().Get("Location"))
+			}
+		})
 	}
 }
 
@@ -271,6 +301,12 @@ func containsCSVField(row []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func formRequest(path, body string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	return req
 }
 
 type fakeStore struct {
