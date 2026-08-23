@@ -233,9 +233,9 @@ Notifier はインターフェースとして定義し、Slack / 汎用Webhook �
 こちらだけを使えばよい。
 
 ```
-certinv_cert_not_after_timestamp{fingerprint,issuer,common_name}
-certinv_cert_lifetime_days{fingerprint,issuer,common_name}
-certinv_cert_remaining_ratio{fingerprint,issuer,common_name}
+certinv_cert_not_after_timestamp{fingerprint,issuer,common_name,automation}
+certinv_cert_lifetime_days{fingerprint,issuer,common_name,automation}
+certinv_cert_remaining_ratio{fingerprint,issuer,common_name,automation}
 certinv_host_reachable{host,port}
 certinv_scan_duration_seconds
 certinv_scan_last_success_timestamp
@@ -253,7 +253,7 @@ certinv_scan_last_success_timestamp
   last_resolved_at / last_probed_at
 - 証明書一覧: fingerprint（短縮表示） / state / not_before / not_after /
   lifetime_days / issuer_cn / issuer_org / subject_cn / SAN / last_seen_at
-- ホストと証明書の紐づき: observed_at / chain_complete / hostname_match
+- ホストと証明書の紐づき: observed_at / chain_complete / hostname_match / automation_class
 - scan状況: 最終成功時刻、直近scanの概要（Prometheus exporter と同じ情報を再利用）
 
 優先度の高い操作機能を次の順で追加する。
@@ -341,6 +341,8 @@ CREATE TABLE host_certificates (
   observed_at       TEXT NOT NULL,
   chain_complete    INTEGER,
   hostname_match    INTEGER,
+  http_status       INTEGER,
+  automation_class  TEXT,
   PRIMARY KEY (host_id, fingerprint)
 );
 

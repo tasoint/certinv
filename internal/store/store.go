@@ -21,6 +21,7 @@ type Store interface {
 	UpsertCertificate(ctx context.Context, cert certmeta.Metadata, now time.Time) error
 	LinkHostCertificate(ctx context.Context, hostID int64, fingerprint string, chainComplete, hostnameMatch bool, now time.Time) error
 	SetHTTPStatus(ctx context.Context, hostID int64, fingerprint string, status int) error
+	SetAutomationClass(ctx context.Context, hostID int64, fingerprint, class string) error
 	GetCertificateState(ctx context.Context, hostID int64, fingerprint string) (string, error)
 	SetCertificateState(ctx context.Context, hostID int64, fingerprint, state string, now time.Time) error
 	RecordEvent(ctx context.Context, event evaluate.Event, now time.Time) (int64, error)
@@ -68,6 +69,7 @@ type CertificateMetric struct {
 	Fingerprint  string
 	Issuer       string
 	CommonName   string
+	Automation   string
 	NotBefore    time.Time
 	NotAfter     time.Time
 	LifetimeDays int
@@ -143,6 +145,7 @@ type InventoryRow struct {
 	NotBefore      string
 	NotAfter       string
 	LifetimeDays   int
+	Automation     string
 	SANNames       string
 	ObservedAt     string
 	ChainComplete  bool

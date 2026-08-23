@@ -203,6 +203,16 @@ func (s *Store) SetHTTPStatus(ctx context.Context, hostID int64, fingerprint str
 	return nil
 }
 
+func (s *Store) SetAutomationClass(ctx context.Context, hostID int64, fingerprint, class string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.ExecContext(ctx, `UPDATE host_certificates SET automation_class = ? WHERE host_id = ? AND fingerprint = ?`, class, hostID, fingerprint)
+	if err != nil {
+		return fmt.Errorf("set automation class for host %d: %w", hostID, err)
+	}
+	return nil
+}
+
 func (s *Store) GetCertificateState(ctx context.Context, hostID int64, fingerprint string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -388,6 +398,7 @@ SELECT
   COALESCE(c.not_before, ''),
   COALESCE(c.not_after, ''),
   COALESCE(c.lifetime_days, 0),
+  COALESCE(hc.automation_class, 'unknown'),
   COALESCE(c.san_names, '[]'),
   COALESCE(hc.observed_at, ''),
   COALESCE(hc.chain_complete, 0),
@@ -429,6 +440,7 @@ ORDER BY h.hostname, h.port, c.not_after
 			&row.NotBefore,
 			&row.NotAfter,
 			&row.LifetimeDays,
+			&row.Automation,
 			&row.SANNames,
 			&row.ObservedAt,
 			&chainComplete,
@@ -759,9 +771,10 @@ func (s *Store) DeleteManagedZoneFile(ctx context.Context, path string) error {
 
 func (s *Store) certificateMetrics(ctx context.Context) ([]store.CertificateMetric, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT fingerprint, COALESCE(issuer_cn, ''), COALESCE(subject_cn, ''), not_before, not_after, lifetime_days
-FROM certificates
-ORDER BY fingerprint
+SELECT DISTINCT c.fingerprint, COALESCE(c.issuer_cn, ''), COALESCE(c.subject_cn, ''), COALESCE(hc.automation_class, 'unknown'), c.not_before, c.not_after, c.lifetime_days
+FROM certificates c
+LEFT JOIN host_certificates hc ON hc.fingerprint = c.fingerprint
+ORDER BY c.fingerprint, COALESCE(hc.automation_class, 'unknown')
 `)
 	if err != nil {
 		return nil, fmt.Errorf("select certificate metrics: %w", err)
@@ -773,7 +786,7 @@ ORDER BY fingerprint
 		var cert store.CertificateMetric
 		var notBefore string
 		var notAfter string
-		if err := rows.Scan(&cert.Fingerprint, &cert.Issuer, &cert.CommonName, &notBefore, &notAfter, &cert.LifetimeDays); err != nil {
+		if err := rows.Scan(&cert.Fingerprint, &cert.Issuer, &cert.CommonName, &cert.Automation, &notBefore, &notAfter, &cert.LifetimeDays); err != nil {
 			return nil, fmt.Errorf("scan certificate metrics: %w", err)
 		}
 		parsedNotBefore, err := time.Parse(time.RFC3339, notBefore)
@@ -880,6 +893,11 @@ func (s *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("add host_certificates.http_status: %w", err)
 		}
 	}
+	if !hostCertificateColumns["automation_class"] {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE host_certificates ADD COLUMN automation_class TEXT`); err != nil {
+			return fmt.Errorf("add host_certificates.automation_class: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -974,6 +992,7 @@ var schema = []string{
   chain_complete    INTEGER,
   hostname_match    INTEGER,
   http_status       INTEGER,
+  automation_class  TEXT,
   PRIMARY KEY (host_id, fingerprint)
 )`,
 	`CREATE TABLE IF NOT EXISTS certificate_states (

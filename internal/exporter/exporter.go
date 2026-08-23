@@ -60,7 +60,7 @@ func (e *Exporter) Collect(ch chan<- prometheus.Metric) {
 	if err == nil {
 		now := time.Now()
 		for _, cert := range snapshot.Certificates {
-			labels := []string{cert.Fingerprint, cert.Issuer, cert.CommonName}
+			labels := []string{cert.Fingerprint, cert.Issuer, cert.CommonName, cert.Automation}
 			ch <- prometheus.MustNewConstMetric(certNotAfter, prometheus.GaugeValue, float64(cert.NotAfter.Unix()), labels...)
 			ch <- prometheus.MustNewConstMetric(certLifetimeDays, prometheus.GaugeValue, float64(cert.LifetimeDays), labels...)
 			ch <- prometheus.MustNewConstMetric(certRemainingRatio, prometheus.GaugeValue, remainingRatio(cert, now), labels...)
@@ -113,19 +113,19 @@ var (
 	certNotAfter = prometheus.NewDesc(
 		"certinv_cert_not_after_timestamp",
 		"TLS certificate notAfter timestamp.",
-		[]string{"fingerprint", "issuer", "common_name"},
+		[]string{"fingerprint", "issuer", "common_name", "automation"},
 		nil,
 	)
 	certLifetimeDays = prometheus.NewDesc(
 		"certinv_cert_lifetime_days",
 		"TLS certificate lifetime in days.",
-		[]string{"fingerprint", "issuer", "common_name"},
+		[]string{"fingerprint", "issuer", "common_name", "automation"},
 		nil,
 	)
 	certRemainingRatio = prometheus.NewDesc(
 		"certinv_cert_remaining_ratio",
 		"TLS certificate remaining lifetime ratio.",
-		[]string{"fingerprint", "issuer", "common_name"},
+		[]string{"fingerprint", "issuer", "common_name", "automation"},
 		nil,
 	)
 	hostReachable = prometheus.NewDesc(
