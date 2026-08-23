@@ -111,6 +111,10 @@ host記録と証明書紐付けを完全削除しますが、証明書メタデ�
 UIではapex/manual hostをDB管理のオーバーレイとして追加・削除できます。`config.yaml` の
 `apexes` / `manual_hosts` は引き続き真のbaseとして扱われ、UIから変更・削除されません。
 crt.nameの有効/無効とendpoint、zone fileの追加もDB管理のオーバーレイとして保存されます。
+`Sources & Targets` タブでは、設定済みのcrt.name endpointに対して現在のapex一覧
+（config + DB管理apex）でlookupを実行し、取得したサブドメイン候補を選択して
+managed manual host（port 443）としてTargetsへ追加できます。このlookupは候補取得のみで、
+DNS解決やTLS probeは行いません。
 zone fileのUI追加を使う場合は、`discovery.zone.allowed_dir` に許可ディレクトリを設定し、
 UIからはその配下に実在するファイルだけを選択します。
 
