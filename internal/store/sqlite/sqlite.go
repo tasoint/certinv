@@ -381,6 +381,111 @@ ORDER BY h.hostname, h.port, c.not_after
 	return snapshot, nil
 }
 
+func (s *Store) ManagedTargets(ctx context.Context) (store.ManagedTargets, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	apexRows, err := s.db.QueryContext(ctx, `
+SELECT apex, added_at
+FROM managed_apexes
+ORDER BY apex
+`)
+	if err != nil {
+		return store.ManagedTargets{}, fmt.Errorf("select managed apexes: %w", err)
+	}
+	defer apexRows.Close()
+
+	var targets store.ManagedTargets
+	for apexRows.Next() {
+		var apex store.ManagedApex
+		if err := apexRows.Scan(&apex.Apex, &apex.AddedAt); err != nil {
+			return store.ManagedTargets{}, fmt.Errorf("scan managed apex: %w", err)
+		}
+		apex.Source = "db"
+		targets.Apexes = append(targets.Apexes, apex)
+	}
+	if err := apexRows.Err(); err != nil {
+		return store.ManagedTargets{}, fmt.Errorf("iterate managed apexes: %w", err)
+	}
+
+	hostRows, err := s.db.QueryContext(ctx, `
+SELECT hostname, port, apex, added_at
+FROM managed_manual_hosts
+ORDER BY hostname, port
+`)
+	if err != nil {
+		return store.ManagedTargets{}, fmt.Errorf("select managed manual hosts: %w", err)
+	}
+	defer hostRows.Close()
+
+	for hostRows.Next() {
+		var host store.ManagedManualHost
+		if err := hostRows.Scan(&host.Hostname, &host.Port, &host.Apex, &host.AddedAt); err != nil {
+			return store.ManagedTargets{}, fmt.Errorf("scan managed manual host: %w", err)
+		}
+		host.Source = "db"
+		targets.ManualHosts = append(targets.ManualHosts, host)
+	}
+	if err := hostRows.Err(); err != nil {
+		return store.ManagedTargets{}, fmt.Errorf("iterate managed manual hosts: %w", err)
+	}
+	return targets, nil
+}
+
+func (s *Store) AddManagedApex(ctx context.Context, apex string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO managed_apexes (apex, added_at)
+VALUES (?, ?)
+ON CONFLICT(apex) DO UPDATE SET added_at = excluded.added_at
+`, apex, formatTime(now))
+	if err != nil {
+		return fmt.Errorf("add managed apex %q: %w", apex, err)
+	}
+	return nil
+}
+
+func (s *Store) DeleteManagedApex(ctx context.Context, apex string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `DELETE FROM managed_apexes WHERE apex = ?`, apex)
+	if err != nil {
+		return fmt.Errorf("delete managed apex %q: %w", apex, err)
+	}
+	return nil
+}
+
+func (s *Store) AddManagedManualHost(ctx context.Context, host discover.Host, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO managed_manual_hosts (hostname, port, apex, added_at)
+VALUES (?, ?, ?, ?)
+ON CONFLICT(hostname, port) DO UPDATE SET
+  apex = excluded.apex,
+  added_at = excluded.added_at
+`, host.Hostname, host.Port, host.Apex, formatTime(now))
+	if err != nil {
+		return fmt.Errorf("add managed manual host %s:%d: %w", host.Hostname, host.Port, err)
+	}
+	return nil
+}
+
+func (s *Store) DeleteManagedManualHost(ctx context.Context, hostname string, port int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `DELETE FROM managed_manual_hosts WHERE hostname = ? AND port = ?`, hostname, port)
+	if err != nil {
+		return fmt.Errorf("delete managed manual host %s:%d: %w", hostname, port, err)
+	}
+	return nil
+}
+
 func (s *Store) certificateMetrics(ctx context.Context) ([]store.CertificateMetric, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT fingerprint, COALESCE(issuer_cn, ''), COALESCE(subject_cn, ''), not_before, not_after, lifetime_days
@@ -473,6 +578,17 @@ func nullableHostID(hostID int64) any {
 }
 
 var schema = []string{
+	`CREATE TABLE IF NOT EXISTS managed_apexes (
+  apex           TEXT PRIMARY KEY,
+  added_at       TEXT NOT NULL
+)`,
+	`CREATE TABLE IF NOT EXISTS managed_manual_hosts (
+  hostname        TEXT NOT NULL,
+  port            INTEGER NOT NULL DEFAULT 443,
+  apex            TEXT NOT NULL,
+  added_at        TEXT NOT NULL,
+  PRIMARY KEY (hostname, port)
+)`,
 	`CREATE TABLE IF NOT EXISTS apexes (
   apex           TEXT PRIMARY KEY,
   enabled        INTEGER NOT NULL DEFAULT 1,

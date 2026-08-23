@@ -24,6 +24,11 @@ type Store interface {
 	MarkEventNotified(ctx context.Context, eventID int64, now time.Time) error
 	MetricsSnapshot(ctx context.Context) (MetricsSnapshot, error)
 	InventorySnapshot(ctx context.Context) (InventorySnapshot, error)
+	ManagedTargets(ctx context.Context) (ManagedTargets, error)
+	AddManagedApex(ctx context.Context, apex string, now time.Time) error
+	DeleteManagedApex(ctx context.Context, apex string) error
+	AddManagedManualHost(ctx context.Context, host discover.Host, now time.Time) error
+	DeleteManagedManualHost(ctx context.Context, hostname string, port int) error
 	Close() error
 }
 
@@ -59,6 +64,25 @@ type HostMetric struct {
 
 type InventorySnapshot struct {
 	Rows []InventoryRow
+}
+
+type ManagedTargets struct {
+	Apexes      []ManagedApex
+	ManualHosts []ManagedManualHost
+}
+
+type ManagedApex struct {
+	Apex    string
+	Source  string
+	AddedAt string
+}
+
+type ManagedManualHost struct {
+	Hostname string
+	Port     int
+	Apex     string
+	Source   string
+	AddedAt  string
 }
 
 type InventoryRow struct {

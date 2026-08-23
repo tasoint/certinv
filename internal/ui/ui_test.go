@@ -5,30 +5,41 @@ import (
 	"encoding/csv"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/tasoint/certinv/internal/discover"
 	"github.com/tasoint/certinv/internal/store"
 )
 
 func TestHandlerRendersInventory(t *testing.T) {
-	handler, err := New(fakeStore{snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
-		{
-			Hostname:      "www.example.com",
-			Port:          443,
-			Apex:          "example.com",
-			Source:        "manual",
-			HostStatus:    "active",
-			CertState:     "healthy",
-			Fingerprint:   "abcdef1234567890",
-			SubjectCN:     "www.example.com",
-			IssuerCN:      "Test CA",
-			NotAfter:      "2026-11-17T12:44:20Z",
-			SANNames:      `["www.example.com","example.com"]`,
-			ChainComplete: true,
-			HostnameMatch: true,
+	handler, err := New(&fakeStore{
+		targets: store.ManagedTargets{
+			Apexes: []store.ManagedApex{{Apex: "managed.example.net", Source: "db"}},
+			ManualHosts: []store.ManagedManualHost{
+				{Hostname: "db.example.com", Port: 8443, Apex: "example.com", Source: "db"},
+			},
 		},
-	}}})
+		snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
+			{
+				Hostname:      "www.example.com",
+				Port:          443,
+				Apex:          "example.com",
+				Source:        "manual",
+				HostStatus:    "active",
+				CertState:     "healthy",
+				Fingerprint:   "abcdef1234567890",
+				SubjectCN:     "www.example.com",
+				IssuerCN:      "Test CA",
+				NotAfter:      "2026-11-17T12:44:20Z",
+				SANNames:      `["www.example.com","example.com"]`,
+				ChainComplete: true,
+				HostnameMatch: true,
+			},
+		}},
+	}, WithConfigTargets([]string{"example.com"}, nil))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -41,7 +52,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "/ui/scan"} {
+	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "/ui/scan", "managed.example.net", "db.example.com:8443"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
@@ -51,9 +62,57 @@ func TestHandlerRendersInventory(t *testing.T) {
 	}
 }
 
+func TestHandlerAddsAndDeletesManagedTargets(t *testing.T) {
+	store := &fakeStore{}
+	handler, err := New(store, WithConfigTargets([]string{"example.com"}, nil))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/apexes", strings.NewReader("apex=example.net"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.serveAddApex(rec, req)
+	if rec.Code != http.StatusSeeOther || store.addedApex != "example.net" {
+		t.Fatalf("add apex status=%d added=%q", rec.Code, store.addedApex)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/ui/manual-hosts", strings.NewReader("hostname=www.example.com&port=8443"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	handler.serveAddManualHost(rec, req)
+	if rec.Code != http.StatusSeeOther || store.addedHost.Hostname != "www.example.com" || store.addedHost.Port != 8443 {
+		t.Fatalf("add host status=%d host=%#v", rec.Code, store.addedHost)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/ui/manual-hosts/delete", strings.NewReader("hostname=www.example.com&port=8443"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	handler.serveDeleteManualHost(rec, req)
+	if rec.Code != http.StatusSeeOther || store.deletedHost != "www.example.com:8443" {
+		t.Fatalf("delete host status=%d deleted=%q", rec.Code, store.deletedHost)
+	}
+}
+
+func TestHandlerRejectsManualHostOutsideApex(t *testing.T) {
+	store := &fakeStore{}
+	handler, err := New(store, WithConfigTargets([]string{"example.com"}, nil))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/manual-hosts", strings.NewReader("hostname=www.example.net&port=443"))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec := httptest.NewRecorder()
+	handler.serveAddManualHost(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+}
+
 func TestHandlerAcceptsManualScan(t *testing.T) {
 	scanner := &fakeScanner{accepted: true}
-	handler, err := New(fakeStore{}, WithScanTrigger(scanner))
+	handler, err := New(&fakeStore{}, WithScanTrigger(scanner))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -74,7 +133,7 @@ func TestHandlerAcceptsManualScan(t *testing.T) {
 }
 
 func TestHandlerRejectsManualScanWhenRunning(t *testing.T) {
-	handler, err := New(fakeStore{}, WithScanTrigger(&fakeScanner{accepted: false}))
+	handler, err := New(&fakeStore{}, WithScanTrigger(&fakeScanner{accepted: false}))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -92,7 +151,7 @@ func TestHandlerRejectsManualScanWhenRunning(t *testing.T) {
 }
 
 func TestHandlerExportsInventoryCSV(t *testing.T) {
-	handler, err := New(fakeStore{snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
+	handler, err := New(&fakeStore{snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
 		{
 			Hostname:       "www.example.com",
 			Port:           443,
@@ -155,7 +214,7 @@ func TestHandlerExportsInventoryCSV(t *testing.T) {
 }
 
 func TestHandlerRedirectsRoot(t *testing.T) {
-	handler, err := New(fakeStore{})
+	handler, err := New(&fakeStore{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -182,12 +241,41 @@ func containsCSVField(row []string, want string) bool {
 
 type fakeStore struct {
 	store.Store
-	snapshot store.InventorySnapshot
-	err      error
+	snapshot    store.InventorySnapshot
+	targets     store.ManagedTargets
+	err         error
+	addedApex   string
+	deletedApex string
+	addedHost   discover.Host
+	deletedHost string
 }
 
 func (s fakeStore) InventorySnapshot(context.Context) (store.InventorySnapshot, error) {
 	return s.snapshot, s.err
+}
+
+func (s *fakeStore) ManagedTargets(context.Context) (store.ManagedTargets, error) {
+	return s.targets, s.err
+}
+
+func (s *fakeStore) AddManagedApex(_ context.Context, apex string, _ time.Time) error {
+	s.addedApex = apex
+	return nil
+}
+
+func (s *fakeStore) DeleteManagedApex(_ context.Context, apex string) error {
+	s.deletedApex = apex
+	return nil
+}
+
+func (s *fakeStore) AddManagedManualHost(_ context.Context, host discover.Host, _ time.Time) error {
+	s.addedHost = host
+	return nil
+}
+
+func (s *fakeStore) DeleteManagedManualHost(_ context.Context, hostname string, port int) error {
+	s.deletedHost = hostname + ":" + strconv.Itoa(port)
+	return nil
 }
 
 type fakeScanner struct {

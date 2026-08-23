@@ -1,14 +1,20 @@
 package ui
 
 import (
+	"context"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"golang.org/x/net/publicsuffix"
+
+	"github.com/tasoint/certinv/internal/config"
+	"github.com/tasoint/certinv/internal/discover"
 	"github.com/tasoint/certinv/internal/store"
 )
 
@@ -17,6 +23,7 @@ type Handler struct {
 	template *template.Template
 	now      func() time.Time
 	scanner  ScanTrigger
+	config   ConfigTargets
 }
 
 type ScanTrigger interface {
@@ -25,9 +32,23 @@ type ScanTrigger interface {
 
 type Option func(*Handler)
 
+type ConfigTargets struct {
+	Apexes      []string
+	ManualHosts []config.ManualHost
+}
+
 func WithScanTrigger(scanner ScanTrigger) Option {
 	return func(h *Handler) {
 		h.scanner = scanner
+	}
+}
+
+func WithConfigTargets(apexes []string, manualHosts []config.ManualHost) Option {
+	return func(h *Handler) {
+		h.config = ConfigTargets{
+			Apexes:      append([]string{}, apexes...),
+			ManualHosts: append([]config.ManualHost{}, manualHosts...),
+		}
 	}
 }
 
@@ -56,6 +77,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/ui", h.serveInventory)
 	mux.HandleFunc("/ui/export.csv", h.serveExportCSV)
 	mux.HandleFunc("/ui/scan", h.serveScan)
+	mux.HandleFunc("/ui/apexes", h.serveAddApex)
+	mux.HandleFunc("/ui/apexes/delete", h.serveDeleteApex)
+	mux.HandleFunc("/ui/manual-hosts", h.serveAddManualHost)
+	mux.HandleFunc("/ui/manual-hosts/delete", h.serveDeleteManualHost)
 }
 
 func (h *Handler) redirectRoot(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +106,9 @@ func (h *Handler) serveInventory(w http.ResponseWriter, r *http.Request) {
 		GeneratedAt: h.now().UTC().Format(time.RFC3339),
 		Rows:        snapshot.Rows,
 	}
+	if targets, err := h.targetRows(r.Context()); err == nil {
+		data.Targets = targets
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.template.Execute(w, data); err != nil {
 		http.Error(w, "failed to render inventory", http.StatusInternalServerError)
@@ -104,6 +132,95 @@ func (h *Handler) serveScan(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusAccepted)
 	_, _ = w.Write([]byte("scan accepted\n"))
+}
+
+func (h *Handler) serveAddApex(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	apex, err := validateApex(r.FormValue("apex"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.store.AddManagedApex(r.Context(), apex, h.now()); err != nil {
+		http.Error(w, "failed to add apex", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/ui", http.StatusSeeOther)
+}
+
+func (h *Handler) serveDeleteApex(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	apex, err := validateApex(r.FormValue("apex"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.store.DeleteManagedApex(r.Context(), apex); err != nil {
+		http.Error(w, "failed to delete apex", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/ui", http.StatusSeeOther)
+}
+
+func (h *Handler) serveAddManualHost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	host, err := h.validateManualHost(r.Context(), r.FormValue("hostname"), r.FormValue("port"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.store.AddManagedManualHost(r.Context(), host, h.now()); err != nil {
+		http.Error(w, "failed to add manual host", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/ui", http.StatusSeeOther)
+}
+
+func (h *Handler) serveDeleteManualHost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+	hostname := discover.NormalizeHostname(r.FormValue("hostname"))
+	port, err := parsePort(r.FormValue("port"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if err := h.store.DeleteManagedManualHost(r.Context(), hostname, port); err != nil {
+		http.Error(w, "failed to delete manual host", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/ui", http.StatusSeeOther)
 }
 
 func (h *Handler) serveExportCSV(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +257,26 @@ func (h *Handler) serveExportCSV(w http.ResponseWriter, r *http.Request) {
 type pageData struct {
 	GeneratedAt string
 	Rows        []store.InventoryRow
+	Targets     targetRows
+}
+
+type targetRows struct {
+	Apexes      []targetApex
+	ManualHosts []targetManualHost
+}
+
+type targetApex struct {
+	Apex      string
+	Origin    string
+	CanDelete bool
+}
+
+type targetManualHost struct {
+	Hostname  string
+	Port      int
+	Apex      string
+	Origin    string
+	CanDelete bool
 }
 
 func shortFingerprint(fingerprint string) string {
@@ -166,6 +303,94 @@ func fallback(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func (h *Handler) targetRows(ctx context.Context) (targetRows, error) {
+	rows := targetRows{}
+	for _, apex := range h.config.Apexes {
+		rows.Apexes = append(rows.Apexes, targetApex{Apex: discover.NormalizeHostname(apex), Origin: "config"})
+	}
+	for _, host := range h.config.ManualHosts {
+		hostname := discover.NormalizeHostname(host.Hostname)
+		apex, _ := discover.ApexFor(hostname, h.config.Apexes)
+		rows.ManualHosts = append(rows.ManualHosts, targetManualHost{
+			Hostname: hostname,
+			Port:     normalizedPort(host.Port),
+			Apex:     apex,
+			Origin:   "config",
+		})
+	}
+	managed, err := h.store.ManagedTargets(ctx)
+	if err != nil {
+		return targetRows{}, err
+	}
+	for _, apex := range managed.Apexes {
+		rows.Apexes = append(rows.Apexes, targetApex{Apex: apex.Apex, Origin: apex.Source, CanDelete: true})
+	}
+	for _, host := range managed.ManualHosts {
+		rows.ManualHosts = append(rows.ManualHosts, targetManualHost{
+			Hostname:  host.Hostname,
+			Port:      host.Port,
+			Apex:      host.Apex,
+			Origin:    host.Source,
+			CanDelete: true,
+		})
+	}
+	return rows, nil
+}
+
+func validateApex(value string) (string, error) {
+	apex := discover.NormalizeHostname(value)
+	if apex == "" {
+		return "", fmt.Errorf("apex is required")
+	}
+	etld1, err := publicsuffix.EffectiveTLDPlusOne(apex)
+	if err != nil || etld1 != apex {
+		return "", fmt.Errorf("apex must be a registrable eTLD+1 domain")
+	}
+	return apex, nil
+}
+
+func (h *Handler) validateManualHost(ctx context.Context, hostnameValue, portValue string) (discover.Host, error) {
+	hostname := discover.NormalizeHostname(hostnameValue)
+	if hostname == "" {
+		return discover.Host{}, fmt.Errorf("hostname is required")
+	}
+	port, err := parsePort(portValue)
+	if err != nil {
+		return discover.Host{}, err
+	}
+	apexes := append([]string{}, h.config.Apexes...)
+	managed, err := h.store.ManagedTargets(ctx)
+	if err != nil {
+		return discover.Host{}, err
+	}
+	for _, apex := range managed.Apexes {
+		apexes = append(apexes, apex.Apex)
+	}
+	apex, ok := discover.ApexFor(hostname, apexes)
+	if !ok {
+		return discover.Host{}, fmt.Errorf("hostname is outside configured or managed apexes")
+	}
+	return discover.Host{Hostname: hostname, Port: port, Apex: apex, Source: "managed"}, nil
+}
+
+func parsePort(value string) (int, error) {
+	if strings.TrimSpace(value) == "" {
+		return discover.DefaultPort, nil
+	}
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, fmt.Errorf("port must be between 1 and 65535")
+	}
+	return port, nil
+}
+
+func normalizedPort(port int) int {
+	if port == 0 {
+		return discover.DefaultPort
+	}
+	return port
 }
 
 var csvHeader = []string{
@@ -271,8 +496,30 @@ const pageTemplate = `<!doctype html>
       font-size: 13px;
       font-weight: 650;
     }
+    button.button { cursor: pointer; }
     main {
       padding: 20px 24px 28px;
+    }
+    section {
+      margin-bottom: 20px;
+    }
+    h2 {
+      margin: 0 0 10px;
+      font-size: 16px;
+    }
+    .forms {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    input {
+      padding: 6px 8px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
     }
     .table-wrap {
       overflow: auto;
@@ -343,6 +590,39 @@ const pageTemplate = `<!doctype html>
     </div>
   </header>
   <main>
+    <section>
+      <h2>Targets</h2>
+      <div class="forms">
+        <form method="post" action="/ui/apexes">
+          <input name="apex" placeholder="example.com" required>
+          <button class="button" type="submit">Add apex</button>
+        </form>
+        <form method="post" action="/ui/manual-hosts">
+          <input name="hostname" placeholder="host.example.com" required>
+          <input name="port" placeholder="443">
+          <button class="button" type="submit">Add manual host</button>
+        </form>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Type</th><th>Target</th><th>Apex</th><th>Origin</th><th>Action</th></tr></thead>
+          <tbody>
+            {{range .Targets.Apexes}}
+            <tr>
+              <td>apex</td><td>{{.Apex}}</td><td>{{.Apex}}</td><td>{{.Origin}}</td>
+              <td>{{if .CanDelete}}<form method="post" action="/ui/apexes/delete"><input type="hidden" name="apex" value="{{.Apex}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
+            </tr>
+            {{end}}
+            {{range .Targets.ManualHosts}}
+            <tr>
+              <td>manual</td><td>{{.Hostname}}:{{.Port}}</td><td>{{.Apex}}</td><td>{{.Origin}}</td>
+              <td>{{if .CanDelete}}<form method="post" action="/ui/manual-hosts/delete"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
     {{if .Rows}}
     <div class="table-wrap">
       <table>

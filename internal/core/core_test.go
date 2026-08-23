@@ -169,6 +169,55 @@ func TestRunnerEmitsRenewedWhenFingerprintChangesAndExpiryExtends(t *testing.T) 
 	}
 }
 
+func TestRunnerIncludesManagedManualHosts(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlitestore.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	if err := db.AddManagedApex(ctx, "example.net", now); err != nil {
+		t.Fatalf("AddManagedApex() error = %v", err)
+	}
+	if err := db.AddManagedManualHost(ctx, discover.Host{
+		Hostname: "www.example.net",
+		Port:     443,
+		Apex:     "example.net",
+		Source:   "managed",
+	}, now); err != nil {
+		t.Fatalf("AddManagedManualHost() error = %v", err)
+	}
+
+	runner := Runner{
+		Config: &config.Config{
+			Apexes: []string{"example.com"},
+			Probe:  config.Probe{Concurrency: 1},
+		},
+		Resolver: fakeResolver{},
+		Prober: fakeProber{certificate: certmeta.Metadata{
+			Fingerprint:   "managed123",
+			IssuerCN:      "Test CA",
+			NotBefore:     now.Add(-24 * time.Hour),
+			NotAfter:      now.Add(47 * 24 * time.Hour),
+			LifetimeDays:  48,
+			ChainComplete: true,
+			HostnameMatch: true,
+		}},
+		Store: db,
+		Now:   func() time.Time { return now },
+		Out:   &bytes.Buffer{},
+	}
+	summary, err := runner.Run(ctx)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if summary.Probed != 1 {
+		t.Fatalf("summary.Probed = %d, want 1", summary.Probed)
+	}
+}
+
 type fakeSource struct {
 	hosts []discover.Host
 }
