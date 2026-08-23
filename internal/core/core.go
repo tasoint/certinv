@@ -429,7 +429,7 @@ func (r Runner) processHost(ctx context.Context, host discover.Host) hostResult 
 
 	result := hostResult{host: host, resolved: true, probed: true}
 	automation := report.EstimateAutomation(probeResult.Certificate)
-	if err := r.Store.SetAutomationClass(ctx, hostID, probeResult.Certificate.Fingerprint, automation.Class); err != nil {
+	if err := r.Store.SetAutomationEstimate(ctx, hostID, probeResult.Certificate.Fingerprint, automation.Class, automation.Reason); err != nil {
 		return hostResult{host: host, resolved: true, probed: true, err: err}
 	}
 	switch automation.Class {

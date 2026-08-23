@@ -203,12 +203,12 @@ func (s *Store) SetHTTPStatus(ctx context.Context, hostID int64, fingerprint str
 	return nil
 }
 
-func (s *Store) SetAutomationClass(ctx context.Context, hostID int64, fingerprint, class string) error {
+func (s *Store) SetAutomationEstimate(ctx context.Context, hostID int64, fingerprint, class, reason string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.ExecContext(ctx, `UPDATE host_certificates SET automation_class = ? WHERE host_id = ? AND fingerprint = ?`, class, hostID, fingerprint)
+	_, err := s.db.ExecContext(ctx, `UPDATE host_certificates SET automation_class = ?, automation_reason = ? WHERE host_id = ? AND fingerprint = ?`, class, reason, hostID, fingerprint)
 	if err != nil {
-		return fmt.Errorf("set automation class for host %d: %w", hostID, err)
+		return fmt.Errorf("set automation estimate for host %d: %w", hostID, err)
 	}
 	return nil
 }
@@ -399,6 +399,7 @@ SELECT
   COALESCE(c.not_after, ''),
   COALESCE(c.lifetime_days, 0),
   COALESCE(hc.automation_class, 'unknown'),
+  COALESCE(hc.automation_reason, ''),
   COALESCE(c.san_names, '[]'),
   COALESCE(hc.observed_at, ''),
   COALESCE(hc.chain_complete, 0),
@@ -441,6 +442,7 @@ ORDER BY h.hostname, h.port, c.not_after
 			&row.NotAfter,
 			&row.LifetimeDays,
 			&row.Automation,
+			&row.AutomationReason,
 			&row.SANNames,
 			&row.ObservedAt,
 			&chainComplete,
@@ -898,6 +900,11 @@ func (s *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("add host_certificates.automation_class: %w", err)
 		}
 	}
+	if !hostCertificateColumns["automation_reason"] {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE host_certificates ADD COLUMN automation_reason TEXT`); err != nil {
+			return fmt.Errorf("add host_certificates.automation_reason: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -993,6 +1000,7 @@ var schema = []string{
   hostname_match    INTEGER,
   http_status       INTEGER,
   automation_class  TEXT,
+  automation_reason TEXT,
   PRIMARY KEY (host_id, fingerprint)
 )`,
 	`CREATE TABLE IF NOT EXISTS certificate_states (

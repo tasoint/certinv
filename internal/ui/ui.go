@@ -83,6 +83,7 @@ func New(st store.Store, opts ...Option) (*Handler, error) {
 		"splitSAN":         splitSAN,
 		"fallback":         fallback,
 		"displayOrigin":    displayOrigin,
+		"automationLabel":  automationLabel,
 	}).Parse(pageTemplate)
 	if err != nil {
 		return nil, err
@@ -788,6 +789,19 @@ func displayOrigin(origin string) string {
 		return "Current form"
 	default:
 		return origin
+	}
+}
+
+func automationLabel(class string) string {
+	switch strings.TrimSpace(class) {
+	case "likely_auto":
+		return "Likely automated"
+	case "likely_manual":
+		return "Likely manual"
+	case "unknown", "":
+		return "Unknown"
+	default:
+		return class
 	}
 }
 
@@ -1576,6 +1590,7 @@ const pageTemplate = `<!doctype html>
     </section>
     <section>
     <h2>Inventory</h2>
+    <p class="meta">Automation is a heuristic based on certificate lifetime and issuer, not a certainty. Likely automated: short-lived certificate from a known ACME-capable issuer. Likely manual: long-lived certificate from an issuer not on that list. Unknown: insufficient signal.</p>
     {{if .Rows}}
     <div class="actions">
       <input id="inventory-host-filter" placeholder="Filter hostnames">
@@ -1624,7 +1639,7 @@ const pageTemplate = `<!doctype html>
             <td><strong>{{.Hostname}}</strong>:{{.Port}}<div class="muted">{{.Apex}} / {{.Source}}</div></td>
             <td>{{.HostStatus}}</td>
             <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .CertState "unknown"}}</span></td>
-            <td><span class="state state-{{fallback .Automation "unknown"}}">{{fallback .Automation "unknown"}}</span></td>
+            <td><span class="state state-{{fallback .Automation "unknown"}}" title="{{fallback .AutomationReason "No automation reason recorded."}}">{{automationLabel .Automation}}</span></td>
             <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .NotAfter "-"}}</span></td>
             <td>{{fallback .IssuerCN "-"}}<div class="muted">{{.IssuerOrg}}</div></td>
             <td>{{fallback .SubjectCN "-"}}</td>

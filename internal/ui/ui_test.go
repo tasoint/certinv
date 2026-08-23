@@ -28,20 +28,21 @@ func TestHandlerRendersInventory(t *testing.T) {
 		},
 		snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
 			{
-				Hostname:      "www.example.com",
-				Port:          443,
-				Apex:          "example.com",
-				Source:        "manual",
-				HostStatus:    "active",
-				CertState:     "healthy",
-				Automation:    "likely_auto",
-				Fingerprint:   "abcdef1234567890",
-				SubjectCN:     "www.example.com",
-				IssuerCN:      "Test CA",
-				NotAfter:      "2026-11-17T12:44:20Z",
-				SANNames:      `["www.example.com","example.com"]`,
-				ChainComplete: true,
-				HostnameMatch: true,
+				Hostname:         "www.example.com",
+				Port:             443,
+				Apex:             "example.com",
+				Source:           "manual",
+				HostStatus:       "active",
+				CertState:        "healthy",
+				Automation:       "likely_auto",
+				AutomationReason: "short-lived certificate from known ACME-capable issuer",
+				Fingerprint:      "abcdef1234567890",
+				SubjectCN:        "www.example.com",
+				IssuerCN:         "Test CA",
+				NotAfter:         "2026-11-17T12:44:20Z",
+				SANNames:         `["www.example.com","example.com"]`,
+				ChainComplete:    true,
+				HostnameMatch:    true,
 			},
 		}},
 		events:     []store.StoredEvent{{ID: 7, Event: evaluate.Event{Kind: evaluate.EventWarn, Fingerprint: "abcdef1234567890", Detail: "expiring"}}},
@@ -62,7 +63,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "likely_auto", "Automation", "state-likely_auto", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "remaining validity ratio", "expiring", "/ui/events/7/ack", "/ui/scan", "inventory-host-filter", "inventory-status-filter", "inventory-page-size", "inventory-prev-page", "inventory-page-label", "inventory-next-page", "filteredRows", "resetInventoryPage", "Page 1 / 1", "data-inventory-host=\"www.example.com\"", "data-cert-state=\"healthy\"", "<td><span class=\"state state-healthy\">2026-11-17T12:44:20Z</span></td>", "applyInventoryFilters", "All clear", "/ui/hosts/suppress-all", "Purge all", "/ui/hosts/purge-all", "saved", "problem"} {
+	for _, want := range []string{"www.example.com", "healthy", "Likely automated", "short-lived certificate from known ACME-capable issuer", "Automation is a heuristic", "Likely manual: long-lived certificate", "Automation", "state-likely_auto", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "remaining validity ratio", "expiring", "/ui/events/7/ack", "/ui/scan", "inventory-host-filter", "inventory-status-filter", "inventory-page-size", "inventory-prev-page", "inventory-page-label", "inventory-next-page", "filteredRows", "resetInventoryPage", "Page 1 / 1", "data-inventory-host=\"www.example.com\"", "data-cert-state=\"healthy\"", "<td><span class=\"state state-healthy\">2026-11-17T12:44:20Z</span></td>", "applyInventoryFilters", "All clear", "/ui/hosts/suppress-all", "Purge all", "/ui/hosts/purge-all", "saved", "problem"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}

@@ -50,8 +50,8 @@ func TestHandlerExportsStoreAndScanMetrics(t *testing.T) {
 	if err := db.LinkHostCertificate(ctx, hostID, "abc123", true, true, now); err != nil {
 		t.Fatalf("LinkHostCertificate() error = %v", err)
 	}
-	if err := db.SetAutomationClass(ctx, hostID, "abc123", "likely_auto"); err != nil {
-		t.Fatalf("SetAutomationClass() error = %v", err)
+	if err := db.SetAutomationEstimate(ctx, hostID, "abc123", "likely_auto", "short-lived certificate from known issuer"); err != nil {
+		t.Fatalf("SetAutomationEstimate() error = %v", err)
 	}
 
 	exp := New(db)
