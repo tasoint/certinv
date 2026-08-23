@@ -135,6 +135,12 @@ exporter:
 `serve` のHTTPサーバを外部公開する場合は、TLS終端とアクセス制御を行うリバースプロキシ
 配下に置くことを推奨します。
 
+### Grafanaダッシュボード
+
+Prometheusで`/metrics`を取り込む場合にインポートできるサンプルを
+[dashboards/certinv.json](dashboards/certinv.json)として配布しています。
+certinv自体はGrafanaを実行・管理せず、このJSONはインポート用テンプレートです。
+
 単発FQDNチェック:
 
 ```sh
