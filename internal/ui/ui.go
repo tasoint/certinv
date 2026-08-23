@@ -1281,12 +1281,30 @@ const pageTemplate = `<!doctype html>
     {{if .Error}}<div class="flash flash-error">{{.Error}}</div>{{end}}
     {{if .SourcesTab}}
     <section>
-      <h2>Targets</h2>
+      <h2>Apexes</h2>
       <div class="forms">
         <form method="post" action="/ui/apexes?tab=sources">
           <input name="apex" placeholder="example.com" required>
           <button class="button" type="submit">Add apex</button>
         </form>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Apex</th><th>Origin</th><th>Action</th></tr></thead>
+          <tbody>
+            {{range .Targets.Apexes}}
+            <tr>
+              <td>{{.Apex}}</td><td>{{.Origin}}</td>
+              <td>{{if .CanDelete}}<form method="post" action="/ui/apexes/delete?tab=sources"><input type="hidden" name="apex" value="{{.Apex}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
+            </tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <section>
+      <h2>Manual hosts</h2>
+      <div class="forms">
         <form method="post" action="/ui/manual-hosts?tab=sources">
           <input name="hostname" placeholder="host.example.com" required>
           <input name="port" placeholder="443">
@@ -1295,17 +1313,11 @@ const pageTemplate = `<!doctype html>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Type</th><th>Target</th><th>Apex</th><th>Origin</th><th>Action</th></tr></thead>
+          <thead><tr><th>Hostname</th><th>Port</th><th>Apex</th><th>Origin</th><th>Action</th></tr></thead>
           <tbody>
-            {{range .Targets.Apexes}}
-            <tr>
-              <td>apex</td><td>{{.Apex}}</td><td>{{.Apex}}</td><td>{{.Origin}}</td>
-              <td>{{if .CanDelete}}<form method="post" action="/ui/apexes/delete?tab=sources"><input type="hidden" name="apex" value="{{.Apex}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
-            </tr>
-            {{end}}
             {{range .Targets.ManualHosts}}
             <tr>
-              <td>manual</td><td>{{.Hostname}}:{{.Port}}</td><td>{{.Apex}}</td><td>{{.Origin}}</td>
+              <td>{{.Hostname}}</td><td>{{.Port}}</td><td>{{.Apex}}</td><td>{{.Origin}}</td>
               <td>{{if .CanDelete}}<form method="post" action="/ui/manual-hosts/edit?tab=sources" style="display:inline"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="old_port" value="{{.Port}}"><input name="port" value="{{.Port}}" size="5"><button class="button" type="submit">Update port</button></form> <form method="post" action="/ui/manual-hosts/delete?tab=sources" style="display:inline"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
             </tr>
             {{end}}
