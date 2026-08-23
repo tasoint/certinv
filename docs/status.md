@@ -31,7 +31,7 @@
 - `/ui/scan` によるUIからの手動scan即時実行（二重起動防止あり）
 - `/ui/scan/status` による手動scan完了待ちポーリング
 - UIからのDB管理apex/manual hostオーバーレイ追加・削除・manual host port編集（config.yaml由来は変更しない）
-- Sources & Targetsタブからのcrt.nameライブlookup、候補絞り込み、選択候補のmanaged manual host登録
+- Sources & Targetsタブからのapex指定crt.nameライブlookup、候補絞り込み、選択候補のmanaged manual host登録
 
 ## 実装済みの追加機能
 
@@ -41,7 +41,8 @@
 - UIからホストを suppress し、次回以降の discovery / scan とインベントリ一覧から除外
 - `Suppressed hosts` セクションから unsuppress して復元可能
 - `Suppressed hosts` セクションからhost記録と証明書紐付けをpurge可能
-- crt.name lookupはDNS解決やTLS probeを行わず、設定済みapex内かつ未登録の候補ホスト名だけを表示する
+- crt.name lookupはDNS解決やTLS probeを行わず、選択したapex内かつ未登録の候補ホスト名だけを表示する
+- Lookup nowはフォーム上のenabled/endpointを一時的に使い、Save crt.nameで保存した設定は次回scan用として別表示する
 
 ## 検証コマンド
 

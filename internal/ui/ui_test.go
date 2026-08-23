@@ -83,7 +83,7 @@ func TestHandlerRendersTabs(t *testing.T) {
 		t.Fatalf("sources status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"crt.name discovery", "Zone files", "Add apex"} {
+	for _, want := range []string{"crt.name discovery", "Zone files", "Add apex", "Saved setting:", "Saving applies this setting", "example.com"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("sources tab missing %q:\n%s", want, body)
 		}
@@ -230,7 +230,7 @@ func TestHandlerLooksUpCrtNameCandidates(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	req := formRequest("/ui/crtname/lookup?tab=sources", "")
+	req := formRequest("/ui/crtname/lookup?tab=sources", "enabled=on&endpoint="+server.URL+"&apex=example.com")
 	rec := httptest.NewRecorder()
 	handler.serveCrtNameLookup(rec, req)
 	if rec.Code != http.StatusOK {
@@ -250,9 +250,11 @@ func TestHandlerLooksUpCrtNameCandidates(t *testing.T) {
 	}
 }
 
-func TestHandlerCrtNameLookupUsesManagedSettingsAndApexes(t *testing.T) {
+func TestHandlerCrtNameLookupUsesSelectedApexAndFormEndpoint(t *testing.T) {
 	var gotApex string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	usedFormEndpoint := false
+	formServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		usedFormEndpoint = true
 		gotApex = r.URL.Query().Get("apex")
 		if gotApex != "managed.example.net" {
 			t.Fatalf("apex query = %q, want managed.example.net", gotApex)
@@ -263,24 +265,34 @@ func TestHandlerCrtNameLookupUsesManagedSettingsAndApexes(t *testing.T) {
 			t.Fatalf("encode response: %v", err)
 		}
 	}))
-	defer server.Close()
+	defer formServer.Close()
+	savedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("saved endpoint should not be used for lookup")
+	}))
+	defer savedServer.Close()
 
 	handler, err := New(&fakeStore{
 		targets: store.ManagedTargets{Apexes: []store.ManagedApex{{Apex: "managed.example.net", Source: "db"}}},
 		discovery: store.ManagedDiscovery{
 			CrtNameSet:      true,
 			CrtNameEnabled:  true,
-			CrtNameEndpoint: server.URL,
+			CrtNameEndpoint: savedServer.URL,
 		},
-	}, WithSourceConfig(config.Discovery{Sources: []string{discover.SourceCrtName}, CrtName: config.CrtNameSource{Endpoint: "http://unused.invalid"}}))
+	}, WithConfigTargets([]string{"example.com"}, nil), WithSourceConfig(config.Discovery{Sources: []string{discover.SourceCrtName}, CrtName: config.CrtNameSource{Endpoint: savedServer.URL}}))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
 	rec := httptest.NewRecorder()
-	handler.serveCrtNameLookup(rec, formRequest("/ui/crtname/lookup?tab=sources", ""))
+	handler.serveCrtNameLookup(rec, formRequest("/ui/crtname/lookup?tab=sources", "enabled=on&endpoint="+formServer.URL+"&apex=managed.example.net"))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "app.managed.example.net") {
 		t.Fatalf("status/body = %d/%s", rec.Code, rec.Body.String())
+	}
+	if !usedFormEndpoint {
+		t.Fatal("form endpoint was not used")
+	}
+	if strings.Contains(rec.Body.String(), "www.example.com") {
+		t.Fatalf("body includes unselected apex candidate:\n%s", rec.Body.String())
 	}
 }
 
@@ -307,7 +319,7 @@ func TestHandlerCrtNameLookupExcludesExistingManualHosts(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	handler.serveCrtNameLookup(rec, formRequest("/ui/crtname/lookup?tab=sources", ""))
+	handler.serveCrtNameLookup(rec, formRequest("/ui/crtname/lookup?tab=sources", "enabled=on&endpoint="+server.URL+"&apex=example.com"))
 	body := rec.Body.String()
 	if rec.Code != http.StatusOK || !strings.Contains(body, "api.example.com") {
 		t.Fatalf("status/body = %d/%s", rec.Code, body)

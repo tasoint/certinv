@@ -340,20 +340,26 @@ func (h *Handler) serveCrtNameLookup(w http.ResponseWriter, r *http.Request) {
 		h.renderSourcesError(w, r, "no apexes configured")
 		return
 	}
-	endpoint, enabled, err := h.effectiveCrtName(r.Context())
-	if err != nil {
-		h.renderSourcesError(w, r, "failed to load crtname settings")
+	if err := r.ParseForm(); err != nil {
+		h.renderSourcesError(w, r, "invalid form")
 		return
 	}
+	selectedApex, ok := selectedLookupApex(r.FormValue("apex"), apexes)
+	if !ok {
+		h.renderSourcesError(w, r, "lookup apex must be configured or managed")
+		return
+	}
+	enabled := r.FormValue("enabled") == "on"
 	if !enabled {
 		h.renderSourcesError(w, r, "crtname discovery is disabled")
 		return
 	}
+	endpoint := strings.TrimSpace(r.FormValue("endpoint"))
 	if strings.TrimSpace(endpoint) == "" {
 		h.renderSourcesError(w, r, "crtname endpoint is not configured")
 		return
 	}
-	hosts, err := crtname.New(endpoint).Discover(r.Context(), apexes)
+	hosts, err := crtname.New(endpoint).Discover(r.Context(), []string{selectedApex})
 	if err != nil {
 		h.renderSourcesError(w, r, "crtname lookup failed")
 		return
@@ -378,6 +384,8 @@ func (h *Handler) serveCrtNameLookup(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load inventory", http.StatusInternalServerError)
 		return
 	}
+	data.Sources.CrtName = crtNameRow{Enabled: enabled, Endpoint: endpoint, Origin: "form"}
+	data.Lookup.SelectedApex = selectedApex
 	data.Lookup.Candidates = candidates
 	h.renderPage(w, data)
 }
@@ -625,8 +633,9 @@ type targetManualHost struct {
 }
 
 type sourceRows struct {
-	CrtName crtNameRow
-	Zone    zoneRows
+	CrtName      crtNameRow
+	SavedCrtName crtNameRow
+	Zone         zoneRows
 }
 
 type crtNameRow struct {
@@ -636,7 +645,9 @@ type crtNameRow struct {
 }
 
 type crtNameLookup struct {
-	Candidates []crtNameCandidate
+	Apexes       []string
+	SelectedApex string
+	Candidates   []crtNameCandidate
 }
 
 type crtNameCandidate struct {
@@ -708,6 +719,12 @@ func (h *Handler) pageData(ctx context.Context, tab, notice, messageError string
 		return pageData{}, err
 	}
 	data.Targets = targets
+	for _, apex := range targets.Apexes {
+		data.Lookup.Apexes = append(data.Lookup.Apexes, apex.Apex)
+	}
+	if len(data.Lookup.Apexes) > 0 {
+		data.Lookup.SelectedApex = data.Lookup.Apexes[0]
+	}
 	sources, err := h.sourceRows(ctx)
 	if err != nil {
 		return pageData{}, err
@@ -879,7 +896,8 @@ func (h *Handler) sourceRows(ctx context.Context) (sourceRows, error) {
 	}
 	available, _ := h.availableZoneFiles()
 	return sourceRows{
-		CrtName: crt,
+		CrtName:      crt,
+		SavedCrtName: crt,
 		Zone: zoneRows{
 			AllowedDir:     h.sources.ZoneAllowedDir,
 			Enabled:        strings.TrimSpace(h.sources.ZoneAllowedDir) != "",
@@ -888,6 +906,20 @@ func (h *Handler) sourceRows(ctx context.Context) (sourceRows, error) {
 			AvailableFiles: available,
 		},
 	}, nil
+}
+
+func selectedLookupApex(value string, apexes []string) (string, bool) {
+	apex := discover.NormalizeHostname(value)
+	if apex == "" && len(apexes) == 1 {
+		apex = discover.NormalizeHostname(apexes[0])
+	}
+	for _, candidate := range apexes {
+		candidate = discover.NormalizeHostname(candidate)
+		if apex == candidate {
+			return candidate, true
+		}
+	}
+	return "", false
 }
 
 func validateApex(value string) (string, error) {
@@ -1300,10 +1332,15 @@ const pageTemplate = `<!doctype html>
       <form method="post" action="/ui/crtname?tab=sources" class="forms">
         <label><input type="checkbox" name="enabled" {{if .Sources.CrtName.Enabled}}checked{{end}}> Enabled</label>
         <input name="endpoint" value="{{.Sources.CrtName.Endpoint}}" placeholder="https://crt.name/v1/search">
+        <select name="apex">
+          {{range .Lookup.Apexes}}<option value="{{.}}" {{if eq . $.Lookup.SelectedApex}}selected{{end}}>{{.}}</option>{{end}}
+        </select>
         <button class="button" type="submit">Save crt.name</button>
         <button class="button" type="submit" formaction="/ui/crtname/lookup?tab=sources">Lookup now</button>
         <span class="muted">origin={{.Sources.CrtName.Origin}}</span>
       </form>
+      <div class="meta">Saving applies this setting to future scheduled scans and Run scan now.</div>
+      <div class="meta">Saved setting: enabled={{.Sources.SavedCrtName.Enabled}} endpoint={{.Sources.SavedCrtName.Endpoint}}</div>
       {{if .Lookup.Candidates}}
       <form method="post" action="/ui/crtname/add-selected?tab=sources">
         <div class="forms">
