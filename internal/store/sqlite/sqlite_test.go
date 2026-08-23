@@ -54,7 +54,7 @@ func TestMigratesHostCertificateAutomationClass(t *testing.T) {
 		}
 		columns[name] = true
 	}
-	if !columns["http_status"] || !columns["automation_class"] {
+	if !columns["http_status"] || !columns["automation_class"] || !columns["automation_reason"] {
 		t.Fatalf("migrated columns = %#v", columns)
 	}
 }
@@ -239,8 +239,8 @@ func TestMetricsSnapshot(t *testing.T) {
 	if err := store.LinkHostCertificate(ctx, hostID, "abc123", true, true, now); err != nil {
 		t.Fatalf("LinkHostCertificate() error = %v", err)
 	}
-	if err := store.SetAutomationClass(ctx, hostID, "abc123", "likely_auto"); err != nil {
-		t.Fatalf("SetAutomationClass() error = %v", err)
+	if err := store.SetAutomationEstimate(ctx, hostID, "abc123", "likely_auto", "short-lived certificate from known issuer"); err != nil {
+		t.Fatalf("SetAutomationEstimate() error = %v", err)
 	}
 
 	snapshot, err := store.MetricsSnapshot(ctx)
@@ -305,8 +305,8 @@ func TestInventorySnapshot(t *testing.T) {
 	if err := store.SetHTTPStatus(ctx, hostID, certificate.Fingerprint, 502); err != nil {
 		t.Fatalf("SetHTTPStatus() error = %v", err)
 	}
-	if err := store.SetAutomationClass(ctx, hostID, certificate.Fingerprint, "likely_manual"); err != nil {
-		t.Fatalf("SetAutomationClass() error = %v", err)
+	if err := store.SetAutomationEstimate(ctx, hostID, certificate.Fingerprint, "likely_manual", "long-lived certificate from issuer not in ACME shortlist"); err != nil {
+		t.Fatalf("SetAutomationEstimate() error = %v", err)
 	}
 
 	snapshot, err := store.InventorySnapshot(ctx)
@@ -319,6 +319,9 @@ func TestInventorySnapshot(t *testing.T) {
 	row := snapshot.Rows[0]
 	if row.Hostname != "www.example.com" || row.Fingerprint != "abc123" || row.CertState != evaluate.StateHealthy || row.HTTPStatus != 502 || row.Automation != "likely_manual" {
 		t.Fatalf("row = %#v", row)
+	}
+	if row.AutomationReason != "long-lived certificate from issuer not in ACME shortlist" {
+		t.Fatalf("automation reason = %q", row.AutomationReason)
 	}
 	if row.SANNames == "" || row.SANNames == "[]" {
 		t.Fatalf("SANNames = %q, want populated JSON", row.SANNames)

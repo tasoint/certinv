@@ -343,6 +343,7 @@ CREATE TABLE host_certificates (
   hostname_match    INTEGER,
   http_status       INTEGER,
   automation_class  TEXT,
+  automation_reason TEXT,
   PRIMARY KEY (host_id, fingerprint)
 );
 

@@ -120,7 +120,7 @@ go run ./cmd/certinv serve --config config.yaml
 - `All clear` は表示中の全ホストをまとめてsuppressします。
 - `Purge` / `Purge all` はsuppressed hostのhost記録と証明書紐付けを完全削除しますが、証明書メタデータ本体は削除しません。
 - `/ui/export.csv` でインベントリ一覧と同等の証明書メタデータをCSVダウンロードできます。Inventoryテーブルはホスト名検索、証明書状態、ページサイズで表示を絞り込めます。
-- Inventory、CSV、Prometheus metricsには証明書メタデータから推定した自動更新区分（`likely_auto` / `likely_manual` / `unknown`）も表示されます。
+- Inventory、CSV、Prometheus metricsには証明書メタデータから推定した自動更新区分（`likely_auto` / `likely_manual` / `unknown`）も表示されます。UIでは読みやすいラベルと判定理由のツールチップで表示し、CSV/metricsでは外部連携用の値を維持します。
 - 証明書の発行・更新や秘密鍵の操作は行いません。
 
 ### Sources & Targets タブ

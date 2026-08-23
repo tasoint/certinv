@@ -21,7 +21,7 @@ type Store interface {
 	UpsertCertificate(ctx context.Context, cert certmeta.Metadata, now time.Time) error
 	LinkHostCertificate(ctx context.Context, hostID int64, fingerprint string, chainComplete, hostnameMatch bool, now time.Time) error
 	SetHTTPStatus(ctx context.Context, hostID int64, fingerprint string, status int) error
-	SetAutomationClass(ctx context.Context, hostID int64, fingerprint, class string) error
+	SetAutomationEstimate(ctx context.Context, hostID int64, fingerprint, class, reason string) error
 	GetCertificateState(ctx context.Context, hostID int64, fingerprint string) (string, error)
 	SetCertificateState(ctx context.Context, hostID int64, fingerprint, state string, now time.Time) error
 	RecordEvent(ctx context.Context, event evaluate.Event, now time.Time) (int64, error)
@@ -129,27 +129,28 @@ type ManagedZoneFile struct {
 }
 
 type InventoryRow struct {
-	Hostname       string
-	Port           int
-	Apex           string
-	Source         string
-	HostStatus     string
-	FirstSeenAt    string
-	LastResolvedAt string
-	LastProbedAt   string
-	Fingerprint    string
-	CertState      string
-	SubjectCN      string
-	IssuerCN       string
-	IssuerOrg      string
-	NotBefore      string
-	NotAfter       string
-	LifetimeDays   int
-	Automation     string
-	SANNames       string
-	ObservedAt     string
-	ChainComplete  bool
-	HostnameMatch  bool
-	HTTPStatus     int
-	LastSeenAt     string
+	Hostname         string
+	Port             int
+	Apex             string
+	Source           string
+	HostStatus       string
+	FirstSeenAt      string
+	LastResolvedAt   string
+	LastProbedAt     string
+	Fingerprint      string
+	CertState        string
+	SubjectCN        string
+	IssuerCN         string
+	IssuerOrg        string
+	NotBefore        string
+	NotAfter         string
+	LifetimeDays     int
+	Automation       string
+	AutomationReason string
+	SANNames         string
+	ObservedAt       string
+	ChainComplete    bool
+	HostnameMatch    bool
+	HTTPStatus       int
+	LastSeenAt       string
 }
