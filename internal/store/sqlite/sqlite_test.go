@@ -179,3 +179,62 @@ func TestMetricsSnapshot(t *testing.T) {
 		t.Fatal("host reachable = false, want true")
 	}
 }
+
+func TestInventorySnapshot(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	if err := store.UpsertApex(ctx, "example.com", now); err != nil {
+		t.Fatalf("UpsertApex() error = %v", err)
+	}
+	hostID, err := store.UpsertHost(ctx, discover.Host{
+		Hostname: "www.example.com",
+		Port:     443,
+		Apex:     "example.com",
+		Source:   discover.SourceManual,
+	}, "active", now)
+	if err != nil {
+		t.Fatalf("UpsertHost() error = %v", err)
+	}
+	certificate := certmeta.Metadata{
+		Fingerprint:   "abc123",
+		SubjectCN:     "www.example.com",
+		IssuerCN:      "Test CA",
+		IssuerOrg:     "Example Org",
+		NotBefore:     now.Add(-24 * time.Hour),
+		NotAfter:      now.Add(47 * 24 * time.Hour),
+		LifetimeDays:  48,
+		SANNames:      []string{"www.example.com"},
+		ChainComplete: true,
+		HostnameMatch: true,
+	}
+	if err := store.UpsertCertificate(ctx, certificate, now); err != nil {
+		t.Fatalf("UpsertCertificate() error = %v", err)
+	}
+	if err := store.LinkHostCertificate(ctx, hostID, certificate.Fingerprint, true, true, now); err != nil {
+		t.Fatalf("LinkHostCertificate() error = %v", err)
+	}
+	if err := store.SetCertificateState(ctx, hostID, certificate.Fingerprint, evaluate.StateHealthy, now); err != nil {
+		t.Fatalf("SetCertificateState() error = %v", err)
+	}
+
+	snapshot, err := store.InventorySnapshot(ctx)
+	if err != nil {
+		t.Fatalf("InventorySnapshot() error = %v", err)
+	}
+	if len(snapshot.Rows) != 1 {
+		t.Fatalf("rows = %d, want 1", len(snapshot.Rows))
+	}
+	row := snapshot.Rows[0]
+	if row.Hostname != "www.example.com" || row.Fingerprint != "abc123" || row.CertState != evaluate.StateHealthy {
+		t.Fatalf("row = %#v", row)
+	}
+	if row.SANNames == "" || row.SANNames == "[]" {
+		t.Fatalf("SANNames = %q, want populated JSON", row.SANNames)
+	}
+}
