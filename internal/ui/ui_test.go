@@ -491,6 +491,7 @@ func TestHandlerScanLoadingMarkup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	rec := httptest.NewRecorder()
 	handler.serveInventory(rec, httptest.NewRequest(http.MethodGet, "/ui?notice=scan+accepted", nil))
 	body := rec.Body.String()
@@ -498,6 +499,7 @@ func TestHandlerScanLoadingMarkup(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Fatalf("loading markup missing %q", want)
 		}
+
 	}
 }
 
@@ -892,5 +894,20 @@ func TestHandlerReportsScanStatus(t *testing.T) {
 	handler.serveScanStatus(rec, req)
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"running":true`) {
 		t.Fatalf("status/body = %d/%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlerIncludesDarkModeStyles(t *testing.T) {
+	handler, err := New(&fakeStore{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	handler.serveInventory(rec, httptest.NewRequest(http.MethodGet, "/ui", nil))
+	body := rec.Body.String()
+	for _, want := range []string{"@media (prefers-color-scheme: dark)", "color-scheme: dark", "--bg: #101418", ".state-alert", ".flash-error"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("dark mode styles missing %q", want)
+		}
 	}
 }

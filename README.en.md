@@ -112,6 +112,7 @@ certinv serve --config config.yaml
 
 ### Inventory tab
 
+- The UI automatically follows the operating system or browser dark-mode setting.
 - Run a manual scan and acknowledge events / alerts. Manual and scheduled scans use saved discovery settings and do not apply per-run overrides.
 - `Run scan now` scans configured apexes immediately. Concurrent runs are rejected; while polling, the UI shows Scanning and disables the button. After 60 seconds it asks you to reload manually.
 - Shows the apexes currently enabled for crt.name discovery.
