@@ -100,6 +100,8 @@ go run ./cmd/certinv serve --config config.yaml
 イベント／アラートの確認済み化、apex／manual hostの登録内容管理を行える設計です。
 `/ui/export.csv` では、UIのインベントリ一覧と同等の証明書メタデータをCSVで
 ダウンロードできます。
+`/ui` の `Run scan now` ボタンから、設定済みapexを対象にしたscanを即時実行できます。
+既にscan実行中の場合は新しい実行は拒否されます。
 
 `exporter.basic_auth.username` と `exporter.basic_auth.password` の両方を設定すると、
 `/metrics` と `/ui` はBasic認証で保護されます。両方空の場合は認証なしで動作し、

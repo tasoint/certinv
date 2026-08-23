@@ -2,9 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -146,5 +148,60 @@ func TestOptionalBasicAuthProtectsUIExport(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("authenticated status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
+func TestOptionalBasicAuthProtectsUIScan(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ui/scan", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+	})
+	handler := withOptionalBasicAuth(mux, config.ExporterAuth{Username: "operator", Password: "secret"})
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/scan", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/ui/scan", nil)
+	req.SetBasicAuth("operator", "secret")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("authenticated status = %d, want %d", rec.Code, http.StatusAccepted)
+	}
+}
+
+func TestSerialScanRunnerRejectsConcurrentManualScan(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	var startedOnce sync.Once
+	scans := newSerialScanRunner(context.Background(), func(context.Context) error {
+		startedOnce.Do(func() { close(started) })
+		<-release
+		return nil
+	}, nil)
+
+	if !scans.TriggerScan() {
+		t.Fatal("first TriggerScan() = false, want true")
+	}
+	<-started
+	if scans.TriggerScan() {
+		t.Fatal("second TriggerScan() = true, want false while running")
+	}
+	close(release)
+	go func() {
+		defer close(done)
+		for !scans.TriggerScan() {
+			time.Sleep(time.Millisecond)
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("scan runner did not accept another run after completion")
 	}
 }

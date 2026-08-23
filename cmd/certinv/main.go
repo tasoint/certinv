@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -91,10 +92,6 @@ func runServe(args []string) error {
 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	exp := exporter.New(db)
-	uiHandler, err := ui.New(db)
-	if err != nil {
-		return err
-	}
 	runner, err := core.NewRunner(cfg, db, os.Stdout, logger)
 	if err != nil {
 		return err
@@ -103,6 +100,14 @@ func runServe(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	scans := newSerialScanRunner(ctx, func(ctx context.Context) error {
+		_, err := runner.Run(ctx)
+		return err
+	}, logger)
+	uiHandler, err := ui.New(db, ui.WithScanTrigger(scans))
+	if err != nil {
+		return err
+	}
 
 	mux := http.NewServeMux()
 	uiHandler.Register(mux)
@@ -125,8 +130,7 @@ func runServe(args []string) error {
 		scheduler := core.Scheduler{
 			Interval: cfg.Schedule.Interval,
 			RunOnce: func(ctx context.Context) error {
-				_, err := runner.Run(ctx)
-				return err
+				return scans.Run(ctx)
 			},
 			Logger: logger,
 		}
@@ -146,6 +150,62 @@ func runServe(args []string) error {
 		}
 	}
 	return nil
+}
+
+type serialScanRunner struct {
+	mu      sync.Mutex
+	running bool
+	ctx     context.Context
+	run     func(context.Context) error
+	logger  *slog.Logger
+}
+
+func newSerialScanRunner(ctx context.Context, run func(context.Context) error, logger *slog.Logger) *serialScanRunner {
+	return &serialScanRunner{
+		ctx:    ctx,
+		run:    run,
+		logger: logger,
+	}
+}
+
+func (r *serialScanRunner) Run(ctx context.Context) error {
+	if !r.start() {
+		if r.logger != nil {
+			r.logger.InfoContext(ctx, "scan skipped because another scan is running")
+		}
+		return nil
+	}
+	defer r.finish()
+	return r.run(ctx)
+}
+
+func (r *serialScanRunner) TriggerScan() bool {
+	if !r.start() {
+		return false
+	}
+	go func() {
+		defer r.finish()
+		if err := r.run(r.ctx); err != nil && r.logger != nil {
+			r.logger.ErrorContext(r.ctx, "manual scan failed", "error", err)
+		}
+	}()
+	return true
+}
+
+func (r *serialScanRunner) start() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.running {
+		return false
+	}
+	r.running = true
+	return true
+}
+
+func (r *serialScanRunner) finish() {
+	r.mu.Lock()
+	r.running = false
+	r.mu.Unlock()
 }
 
 func withOptionalBasicAuth(next http.Handler, auth config.ExporterAuth) http.Handler {

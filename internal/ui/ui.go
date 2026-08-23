@@ -16,9 +16,22 @@ type Handler struct {
 	store    store.Store
 	template *template.Template
 	now      func() time.Time
+	scanner  ScanTrigger
 }
 
-func New(st store.Store) (*Handler, error) {
+type ScanTrigger interface {
+	TriggerScan() bool
+}
+
+type Option func(*Handler)
+
+func WithScanTrigger(scanner ScanTrigger) Option {
+	return func(h *Handler) {
+		h.scanner = scanner
+	}
+}
+
+func New(st store.Store, opts ...Option) (*Handler, error) {
 	tmpl, err := template.New("inventory").Funcs(template.FuncMap{
 		"shortFingerprint": shortFingerprint,
 		"splitSAN":         splitSAN,
@@ -27,17 +40,22 @@ func New(st store.Store) (*Handler, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Handler{
+	handler := &Handler{
 		store:    st,
 		template: tmpl,
 		now:      time.Now,
-	}, nil
+	}
+	for _, opt := range opts {
+		opt(handler)
+	}
+	return handler, nil
 }
 
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/", h.redirectRoot)
 	mux.HandleFunc("/ui", h.serveInventory)
 	mux.HandleFunc("/ui/export.csv", h.serveExportCSV)
+	mux.HandleFunc("/ui/scan", h.serveScan)
 }
 
 func (h *Handler) redirectRoot(w http.ResponseWriter, r *http.Request) {
@@ -67,6 +85,25 @@ func (h *Handler) serveInventory(w http.ResponseWriter, r *http.Request) {
 	if err := h.template.Execute(w, data); err != nil {
 		http.Error(w, "failed to render inventory", http.StatusInternalServerError)
 	}
+}
+
+func (h *Handler) serveScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if h.scanner == nil {
+		http.Error(w, "scan trigger is not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if !h.scanner.TriggerScan() {
+		http.Error(w, "scan is already running", http.StatusConflict)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusAccepted)
+	_, _ = w.Write([]byte("scan accepted\n"))
 }
 
 func (h *Handler) serveExportCSV(w http.ResponseWriter, r *http.Request) {
@@ -299,8 +336,11 @@ const pageTemplate = `<!doctype html>
 <body>
   <header>
     <h1>certinv inventory</h1>
-    <div class="meta">Generated at {{.GeneratedAt}}. Read-only view.</div>
-    <div class="actions"><a class="button" href="/ui/export.csv">Download CSV</a></div>
+    <div class="meta">Generated at {{.GeneratedAt}}. Certificates and keys are not modified from this UI.</div>
+    <div class="actions">
+      <form method="post" action="/ui/scan" style="display:inline"><button class="button" type="submit">Run scan now</button></form>
+      <a class="button" href="/ui/export.csv">Download CSV</a>
+    </div>
   </header>
   <main>
     {{if .Rows}}
