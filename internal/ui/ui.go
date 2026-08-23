@@ -1266,6 +1266,29 @@ const pageTemplate = `<!doctype html>
       --ok: #1a7f37;
       --misconfigured: #8250df;
     }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: dark;
+        --bg: #101418;
+        --panel: #1b2229;
+        --text: #e6edf3;
+        --muted: #9da7b1;
+        --line: #3b4652;
+        --warn: #d29922;
+        --alert: #ff7b72;
+        --ok: #56d364;
+        --misconfigured: #d2a8ff;
+      }
+      .button { background: #252d35; }
+      .state-healthy, .state-likely_auto { background: #12351f; }
+      .state-warn, .state-likely_manual { background: #3b2e05; }
+      .state-alert, .state-expired { background: #4b1818; }
+      .state-misconfigured { background: #2d1b3d; }
+      .state-unknown { background: #252d35; }
+      .flash-notice { border-color: #56d364; }
+      .flash-error { border-color: #ff7b72; }
+      .scan-status { border-color: #58a6ff; background: #102a43; }
+    }
     * { box-sizing: border-box; }
     body {
       margin: 0;
