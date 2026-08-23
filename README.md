@@ -95,14 +95,11 @@ go run ./cmd/certinv scan --config config.yaml
 go run ./cmd/certinv serve --config config.yaml
 ```
 
-`serve` では Prometheus metrics を `/metrics` で提供します。`/ui` でインベントリ一覧と
-限定的な運用操作を提供し、`/` は `/ui` にリダイレクトします。UIから手動scanの実行、
-イベント／アラートの確認済み化、apex／manual hostの登録内容管理を行える設計です。
-インベントリ行の `Suppress` でホストを一覧と次回以降のscan対象から除外できます。
-`Suppressed hosts` セクションの `Unsuppress` で復元できます。
 `serve` では Prometheus metrics を `/metrics` で提供します。`/ui` は
 `Inventory` と `Sources & Targets` のタブに分かれており、`/` は `/ui` にリダイレクトします。
 UIから手動scanの実行、イベント／アラートの確認済み化、apex／manual hostの登録内容管理を行えます。
+インベントリ行の `Suppress` でホストを一覧と次回以降のscan対象から除外でき、
+`Suppressed hosts` セクションの `Unsuppress` で復元できます。
 未確認の warn / alert イベントは `/ui` から確認済みにできます。証明書の発行・更新や
 秘密鍵の操作は行いません。
 `/ui/export.csv` では、UIのインベントリ一覧と同等の証明書メタデータをCSVで
