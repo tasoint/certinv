@@ -1338,6 +1338,12 @@ const pageTemplate = `<!doctype html>
     }
     .flash-notice { border-color: #8fd19e; color: var(--ok); }
     .flash-error { border-color: #ff8182; color: var(--alert); }
+    .scan-status {
+      margin-bottom: 10px;
+      padding: 10px;
+      border: 1px solid #539bf5;
+      background: #ddf4ff;
+    }
   </style>
 </head>
 <body>
@@ -1469,8 +1475,9 @@ const pageTemplate = `<!doctype html>
     </section>
     {{else}}
     <section>
+    {{if .PollScan}}<div id="scan-status" class="scan-status" role="status">Scanning...</div>{{end}}
     <div class="actions">
-      <form method="post" action="/ui/scan" style="display:inline"><label><input type="checkbox" name="include_crtname" value="true"> Include crt.name</label> <button class="button" type="submit">Run scan now</button></form>
+      <form method="post" action="/ui/scan" style="display:inline"><label><input type="checkbox" name="include_crtname" value="true"> Include crt.name</label> <button id="run-scan" class="button" type="submit" {{if .PollScan}}disabled{{end}}>Run scan now</button></form>
       <a class="button" href="/ui/export.csv">Download CSV</a>
     </div>
     </section>
@@ -1571,8 +1578,14 @@ const pageTemplate = `<!doctype html>
   <script>
     (function () {
       var started = Date.now();
+      var button = document.getElementById('run-scan');
+      var status = document.getElementById('scan-status');
+      if (button) button.disabled = true;
       function poll() {
-        if (Date.now() - started > 60000) return;
+        if (Date.now() - started > 60000) {
+          status.textContent = 'The scan may still be running. Please reload the page manually.';
+          return;
+        }
         fetch('/ui/scan/status', {credentials: 'same-origin'})
           .then(function (response) { return response.ok ? response.json() : {running: true}; })
           .then(function (status) {
