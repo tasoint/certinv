@@ -104,6 +104,8 @@ go run ./cmd/certinv serve --config config.yaml
 ダウンロードできます。
 `/ui` の `Run scan now` ボタンから、設定済みapexを対象にしたscanを即時実行できます。
 既にscan実行中の場合は新しい実行は拒否されます。
+UIではapex/manual hostをDB管理のオーバーレイとして追加・削除できます。`config.yaml` の
+`apexes` / `manual_hosts` は引き続き真のbaseとして扱われ、UIから変更・削除されません。
 
 `exporter.basic_auth.username` と `exporter.basic_auth.password` の両方を設定すると、
 `/metrics` と `/ui` はBasic認証で保護されます。両方空の場合は認証なしで動作し、

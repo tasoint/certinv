@@ -197,6 +197,29 @@ func TestOptionalBasicAuthProtectsUIScan(t *testing.T) {
 	}
 }
 
+func TestOptionalBasicAuthProtectsUIManagement(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ui/manual-hosts", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusSeeOther)
+	})
+	handler := withOptionalBasicAuth(mux, config.ExporterAuth{Username: "operator", Password: "secret"})
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/manual-hosts", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/ui/manual-hosts", nil)
+	req.SetBasicAuth("operator", "secret")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("authenticated status = %d, want %d", rec.Code, http.StatusSeeOther)
+	}
+}
+
 func TestSerialScanRunnerRejectsConcurrentManualScan(t *testing.T) {
 	started := make(chan struct{})
 	release := make(chan struct{})

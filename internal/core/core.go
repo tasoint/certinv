@@ -73,9 +73,6 @@ func NewRunner(cfg *config.Config, st store.Store, out io.Writer, logger *slog.L
 	if slices.Contains(cfg.Discovery.Sources, discover.SourceCrtName) {
 		sources = append(sources, crtname.New(cfg.Discovery.CrtName.Endpoint))
 	}
-	if slices.Contains(cfg.Discovery.Sources, discover.SourceManual) {
-		sources = append(sources, manual.New(cfg.ManualHosts))
-	}
 	if slices.Contains(cfg.Discovery.Sources, discover.SourceZone) {
 		sources = append(sources, zonefile.New(cfg.Discovery.Zone.Files))
 	}
@@ -125,7 +122,11 @@ func (r Runner) Run(ctx context.Context) (summary Summary, err error) {
 		}
 	}()
 
-	for _, apex := range r.Config.Apexes {
+	effectiveApexes, err := r.effectiveApexes(ctx)
+	if err != nil {
+		return Summary{}, err
+	}
+	for _, apex := range effectiveApexes {
 		if err := r.Store.UpsertApex(ctx, apex, now); err != nil {
 			return Summary{}, err
 		}
@@ -219,14 +220,72 @@ func (r Runner) Run(ctx context.Context) (summary Summary, err error) {
 
 func (r Runner) discover(ctx context.Context) ([]discover.Host, error) {
 	var groups [][]discover.Host
+	apexes, err := r.effectiveApexes(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for _, source := range r.Sources {
-		hosts, err := source.Discover(ctx, r.Config.Apexes)
+		hosts, err := source.Discover(ctx, apexes)
 		if err != nil {
 			return nil, fmt.Errorf("discover via %s: %w", source.Name(), err)
 		}
 		groups = append(groups, hosts)
 	}
+	manualHosts, err := r.effectiveManualHosts(ctx, apexes)
+	if err != nil {
+		return nil, err
+	}
+	if slices.Contains(r.Config.Discovery.Sources, discover.SourceManual) || len(manualHosts) > 0 {
+		hosts, err := manual.New(manualHosts).Discover(ctx, apexes)
+		if err != nil {
+			return nil, fmt.Errorf("discover via %s: %w", discover.SourceManual, err)
+		}
+		groups = append(groups, hosts)
+	}
 	return discover.Merge(groups...), nil
+}
+
+func (r Runner) effectiveApexes(ctx context.Context) ([]string, error) {
+	apexes := append([]string{}, r.Config.Apexes...)
+	managed, err := r.Store.ManagedTargets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, apex := range managed.Apexes {
+		apexes = append(apexes, apex.Apex)
+	}
+	return uniqueStrings(apexes), nil
+}
+
+func (r Runner) effectiveManualHosts(ctx context.Context, apexes []string) ([]config.ManualHost, error) {
+	hosts := append([]config.ManualHost{}, r.Config.ManualHosts...)
+	managed, err := r.Store.ManagedTargets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, host := range managed.ManualHosts {
+		if _, ok := discover.ApexFor(host.Hostname, apexes); ok {
+			hosts = append(hosts, config.ManualHost{Hostname: host.Hostname, Port: host.Port})
+		}
+	}
+	return hosts, nil
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	var result []string
+	for _, value := range values {
+		value = discover.NormalizeHostname(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func (r Runner) processHost(ctx context.Context, host discover.Host) hostResult {

@@ -262,3 +262,50 @@ func TestInventorySnapshot(t *testing.T) {
 		t.Fatalf("SANNames = %q, want populated JSON", row.SANNames)
 	}
 }
+
+func TestManagedTargets(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	if err := store.AddManagedApex(ctx, "example.net", now); err != nil {
+		t.Fatalf("AddManagedApex() error = %v", err)
+	}
+	if err := store.AddManagedManualHost(ctx, discover.Host{
+		Hostname: "www.example.net",
+		Port:     8443,
+		Apex:     "example.net",
+		Source:   "managed",
+	}, now); err != nil {
+		t.Fatalf("AddManagedManualHost() error = %v", err)
+	}
+
+	targets, err := store.ManagedTargets(ctx)
+	if err != nil {
+		t.Fatalf("ManagedTargets() error = %v", err)
+	}
+	if len(targets.Apexes) != 1 || targets.Apexes[0].Apex != "example.net" {
+		t.Fatalf("managed apexes = %#v", targets.Apexes)
+	}
+	if len(targets.ManualHosts) != 1 || targets.ManualHosts[0].Hostname != "www.example.net" || targets.ManualHosts[0].Port != 8443 {
+		t.Fatalf("managed manual hosts = %#v", targets.ManualHosts)
+	}
+
+	if err := store.DeleteManagedManualHost(ctx, "www.example.net", 8443); err != nil {
+		t.Fatalf("DeleteManagedManualHost() error = %v", err)
+	}
+	if err := store.DeleteManagedApex(ctx, "example.net"); err != nil {
+		t.Fatalf("DeleteManagedApex() error = %v", err)
+	}
+	targets, err = store.ManagedTargets(ctx)
+	if err != nil {
+		t.Fatalf("ManagedTargets() after delete error = %v", err)
+	}
+	if len(targets.Apexes) != 0 || len(targets.ManualHosts) != 0 {
+		t.Fatalf("managed targets after delete = %#v", targets)
+	}
+}
