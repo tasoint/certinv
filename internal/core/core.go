@@ -44,9 +44,14 @@ type Runner struct {
 	Prober    probe.Prober
 	Store     store.Store
 	Notifiers []notify.Notifier
+	Recorder  ScanRecorder
 	Now       func() time.Time
 	Logger    *slog.Logger
 	Out       io.Writer
+}
+
+type ScanRecorder interface {
+	RecordScan(summary Summary, duration time.Duration, success bool, occurredAt time.Time)
 }
 
 func Run(ctx context.Context, cfg *config.Config, out io.Writer) (Summary, error) {
@@ -56,6 +61,14 @@ func Run(ctx context.Context, cfg *config.Config, out io.Writer) (Summary, error
 	}
 	defer db.Close()
 
+	runner, err := NewRunner(cfg, db, out, slog.New(slog.NewTextHandler(os.Stderr, nil)))
+	if err != nil {
+		return Summary{}, err
+	}
+	return runner.Run(ctx)
+}
+
+func NewRunner(cfg *config.Config, st store.Store, out io.Writer, logger *slog.Logger) (Runner, error) {
 	sources := make([]discover.Source, 0, len(cfg.Discovery.Sources))
 	if slices.Contains(cfg.Discovery.Sources, discover.SourceCrtName) {
 		sources = append(sources, crtname.New(cfg.Discovery.CrtName.Endpoint))
@@ -68,24 +81,23 @@ func Run(ctx context.Context, cfg *config.Config, out io.Writer) (Summary, error
 	}
 	notifiers, err := notify.FromConfig(cfg.Notifiers)
 	if err != nil {
-		return Summary{}, err
+		return Runner{}, err
 	}
 
-	runner := Runner{
+	return Runner{
 		Config:    cfg,
 		Sources:   sources,
 		Resolver:  resolve.NewNetResolver(nil),
 		Prober:    probe.NewTLSProber(cfg.Probe.ConnectTimeout, cfg.Probe.HandshakeTimeout),
-		Store:     db,
+		Store:     st,
 		Notifiers: notifiers,
 		Now:       time.Now,
-		Logger:    slog.New(slog.NewTextHandler(os.Stderr, nil)),
+		Logger:    logger,
 		Out:       out,
-	}
-	return runner.Run(ctx)
+	}, nil
 }
 
-func (r Runner) Run(ctx context.Context) (Summary, error) {
+func (r Runner) Run(ctx context.Context) (summary Summary, err error) {
 	if r.Config == nil {
 		return Summary{}, fmt.Errorf("config is required")
 	}
@@ -106,12 +118,18 @@ func (r Runner) Run(ctx context.Context) (Summary, error) {
 	}
 
 	now := r.Now()
+	startedAt := now
+	defer func() {
+		if r.Recorder != nil {
+			r.Recorder.RecordScan(summary, r.Now().Sub(startedAt), err == nil, r.Now())
+		}
+	}()
+
 	for _, apex := range r.Config.Apexes {
 		if err := r.Store.UpsertApex(ctx, apex, now); err != nil {
 			return Summary{}, err
 		}
 	}
-	summary := Summary{}
 	notified, notifyFailed, err := r.retryPendingEvents(ctx, now)
 	if err != nil {
 		return summary, err

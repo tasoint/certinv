@@ -22,6 +22,7 @@ type Store interface {
 	RecordEvent(ctx context.Context, event evaluate.Event, now time.Time) (int64, error)
 	PendingEvents(ctx context.Context) ([]StoredEvent, error)
 	MarkEventNotified(ctx context.Context, eventID int64, now time.Time) error
+	MetricsSnapshot(ctx context.Context) (MetricsSnapshot, error)
 	Close() error
 }
 
@@ -33,4 +34,24 @@ type StoredEvent struct {
 type HostCertificate struct {
 	Fingerprint string
 	NotAfter    time.Time
+}
+
+type MetricsSnapshot struct {
+	Certificates []CertificateMetric
+	Hosts        []HostMetric
+}
+
+type CertificateMetric struct {
+	Fingerprint  string
+	Issuer       string
+	CommonName   string
+	NotBefore    time.Time
+	NotAfter     time.Time
+	LifetimeDays int
+}
+
+type HostMetric struct {
+	Hostname  string
+	Port      int
+	Reachable bool
 }
