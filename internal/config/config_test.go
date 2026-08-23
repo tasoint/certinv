@@ -98,6 +98,55 @@ discovery:
 	}
 }
 
+func TestLoadAcceptsExporterBasicAuth(t *testing.T) {
+	path := writeConfig(t, `
+apexes:
+  - example.com
+exporter:
+  listen: :9101
+  basic_auth:
+    username: operator
+    password: secret
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.Exporter.BasicAuth.Username; got != "operator" {
+		t.Fatalf("basic auth username = %q, want operator", got)
+	}
+	if got := cfg.Exporter.BasicAuth.Password; got != "secret" {
+		t.Fatalf("basic auth password = %q, want secret", got)
+	}
+}
+
+func TestLoadRejectsPartialExporterBasicAuth(t *testing.T) {
+	for name, body := range map[string]string{
+		"username only": `
+apexes:
+  - example.com
+exporter:
+  basic_auth:
+    username: operator
+`,
+		"password only": `
+apexes:
+  - example.com
+exporter:
+  basic_auth:
+    password: secret
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeConfig(t, body)
+			if _, err := Load(path); err == nil {
+				t.Fatal("Load() error = nil, want error")
+			}
+		})
+	}
+}
+
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
 

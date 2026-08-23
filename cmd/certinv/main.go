@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"flag"
 	"fmt"
 	"io"
@@ -106,9 +107,10 @@ func runServe(args []string) error {
 	mux := http.NewServeMux()
 	uiHandler.Register(mux)
 	mux.Handle("/metrics", exp.Handler())
+	handler := withOptionalBasicAuth(mux, cfg.Exporter.BasicAuth)
 	server := &http.Server{
 		Addr:              cfg.Exporter.Listen,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -144,6 +146,23 @@ func runServe(args []string) error {
 		}
 	}
 	return nil
+}
+
+func withOptionalBasicAuth(next http.Handler, auth config.ExporterAuth) http.Handler {
+	if auth.Username == "" && auth.Password == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		username, password, ok := r.BasicAuth()
+		usernameOK := subtle.ConstantTimeCompare([]byte(username), []byte(auth.Username)) == 1
+		passwordOK := subtle.ConstantTimeCompare([]byte(password), []byte(auth.Password)) == 1
+		if !ok || !usernameOK || !passwordOK {
+			w.Header().Set("WWW-Authenticate", `Basic realm="certinv"`)
+			http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func runCheck(args []string) error {

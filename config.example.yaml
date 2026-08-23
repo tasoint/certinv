@@ -66,3 +66,8 @@ notifiers: []
 # serve モードのみ有効
 exporter:
   listen: :9101
+  # 両方空ならBasic認証は無効です。
+  # 外部公開する場合はTLS終端・アクセス制御済みのリバースプロキシ配下に置いてください。
+  basic_auth:
+    username: ""
+    password: ""

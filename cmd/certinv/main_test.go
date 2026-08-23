@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	certmeta "github.com/tasoint/certinv/internal/cert"
+	"github.com/tasoint/certinv/internal/config"
 	"github.com/tasoint/certinv/internal/probe"
 )
 
@@ -73,5 +76,52 @@ func TestPrintCheckResult(t *testing.T) {
 	}
 	if strings.Contains(got, "PRIVATE KEY") {
 		t.Fatal("output contains forbidden key material marker")
+	}
+}
+
+func TestOptionalBasicAuthPassesThroughWhenUnset(t *testing.T) {
+	handler := withOptionalBasicAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), config.ExporterAuth{})
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
+func TestOptionalBasicAuthAcceptsValidCredentials(t *testing.T) {
+	handler := withOptionalBasicAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), config.ExporterAuth{Username: "operator", Password: "secret"})
+
+	req := httptest.NewRequest(http.MethodGet, "/ui", nil)
+	req.SetBasicAuth("operator", "secret")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
+func TestOptionalBasicAuthRejectsInvalidCredentials(t *testing.T) {
+	handler := withOptionalBasicAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("inner handler should not be called")
+	}), config.ExporterAuth{Username: "operator", Password: "secret"})
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	req.SetBasicAuth("operator", "wrong")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	if got := rec.Header().Get("WWW-Authenticate"); got != `Basic realm="certinv"` {
+		t.Fatalf("WWW-Authenticate = %q, want Basic realm", got)
 	}
 }

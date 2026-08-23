@@ -258,6 +258,15 @@ UIは本ツールの絶対ルールに従い、証明書の生DER/PEMや秘密�
 導入しない。`serve` コマンドの既存HTTPサーバに `/ui` として同居させ、`/` は `/ui` に
 redirect する。`/metrics` はPrometheus用のまま維持する。
 
+`serve` モードのHTTPサーバは、オプションでBasic認証を有効化できる。設定の
+`exporter.basic_auth.username` と `exporter.basic_auth.password` の両方が空の場合は
+認証なしで動作し、既存設定との後方互換を維持する。両方が設定されている場合は
+`/metrics` と `/ui` の両方を保護する。認証情報の比較には定数時間比較を使い、
+パスワードなどの秘匿情報をログに出してはならない。
+
+外部公開する場合は、certinv のHTTPサーバを直接インターネットへ露出せず、TLS終端と
+アクセス制御を行うリバースプロキシ配下に置くことを推奨する。
+
 ---
 
 ## 5. データモデル
@@ -392,9 +401,14 @@ notifiers:
 
 exporter:            # serve モードのみ
   listen: :9101
+  basic_auth:        # 任意。username/password の両方が空なら無効
+    username: ""
+    password: ""
 ```
 
-シークレットは設定ファイルに直接書かせず、環境変数参照のみを許可する。
+通知Webhookなど外部連携のシークレットは、設定ファイルに直接書かせず環境変数参照のみを
+許可する。`exporter.basic_auth.password` は小規模運用向けの任意設定として扱い、
+ログには出さず、設定ファイルの権限管理または環境変数テンプレート等で保護する。
 
 ---
 
