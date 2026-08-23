@@ -5,8 +5,8 @@
 Certificate Transparency 由来のサブドメイン一覧から到達可能なホストを絞り込み、
 証明書を収集して有効期限を追跡し、期限切れ前に通知します。
 
-> **開発中です。** `master` では `scan` と通知イベント管理まで動作します。
-> `serve` / Prometheus exporter / Web UI / zone file discovery は未マージPRで実装中です。
+> **開発中です。** 現在は `scan` / `serve` / `check` コマンドを実装しています。
+> `serve` では Prometheus exporter と読み取り専用 Web UI を提供します。
 > 詳細は [docs/status.md](docs/status.md) と [docs/design.md](docs/design.md) を参照してください。
 
 ## 背景
@@ -34,13 +34,13 @@ certinv は **自分が所有・管理するドメイン** の棚卸しに使う
 - discovery source:
   - `crtname`: crt.name API から候補ホスト名を取得
   - `manual`: 設定ファイルの手動登録ホストを取得
-  - `zone`: DNS zone file から取得（PR #3）
+  - `zone`: DNS zone file から取得
 - DNS 解決による生存確認
 - TLS probe と証明書メタデータ収集
 - SQLite への host / certificate / event 保存
 - 残存率ベースの warn / alert / expired / misconfigured 判定
 - Slack / Webhook 通知（状態遷移時のみ）
-- `serve` モード、Prometheus `/metrics`、読み取り専用 Web UI（PR #2 / #5）
+- `serve` モード、Prometheus `/metrics`、読み取り専用 Web UI
 
 ## 使い方
 
@@ -58,14 +58,25 @@ gofmt -l .
 go run ./cmd/certinv scan --config config.example.yaml
 ```
 
-常駐モード（PR #2）:
+常駐モード:
 
 ```sh
 go run ./cmd/certinv serve --config config.example.yaml
 ```
 
-`serve` では Prometheus metrics を `/metrics` で提供します。Web UI 実装ブランチでは
-`/ui` で読み取り専用のインベントリ一覧を表示し、`/` は `/ui` にリダイレクトします。
+`serve` では Prometheus metrics を `/metrics` で提供します。`/ui` で読み取り専用の
+インベントリ一覧を表示し、`/` は `/ui` にリダイレクトします。
+
+単発FQDNチェック:
+
+```sh
+go run ./cmd/certinv check --config config.example.yaml www.example.com
+go run ./cmd/certinv check --config config.example.yaml --port 8443 app.example.com
+```
+
+`check` で指定できるFQDNは設定ファイルの `apexes` 配下だけです。apex外の任意ドメインは
+拒否されます。`check` は読み取り専用で、証明書メタデータを標準出力に表示します。
+DBへの永続化や設定変更は行いません。
 
 ## やらないこと
 

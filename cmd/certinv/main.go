@@ -4,16 +4,20 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/tasoint/certinv/internal/config"
 	"github.com/tasoint/certinv/internal/core"
+	"github.com/tasoint/certinv/internal/discover"
 	"github.com/tasoint/certinv/internal/exporter"
+	"github.com/tasoint/certinv/internal/probe"
 	sqlitestore "github.com/tasoint/certinv/internal/store/sqlite"
 	"github.com/tasoint/certinv/internal/ui"
 )
@@ -35,6 +39,8 @@ func run(args []string) error {
 		return runScan(args[1:])
 	case "serve":
 		return runServe(args[1:])
+	case "check":
+		return runCheck(args[1:])
 	default:
 		return usageError()
 	}
@@ -140,6 +146,81 @@ func runServe(args []string) error {
 	return nil
 }
 
+func runCheck(args []string) error {
+	flags := flag.NewFlagSet("check", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	configPath := flags.String("config", "config.yaml", "path to config file")
+	port := flags.Int("port", 443, "TLS port to check")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 {
+		return fmt.Errorf("check requires exactly one FQDN")
+	}
+
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	hostname, apex, err := scopedCheckTarget(flags.Arg(0), cfg.Apexes)
+	if err != nil {
+		return err
+	}
+	if *port < 1 || *port > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	prober := probe.NewTLSProber(cfg.Probe.ConnectTimeout, cfg.Probe.HandshakeTimeout)
+	result, err := prober.Probe(ctx, probe.Target{Hostname: hostname, Port: *port})
+	if err != nil {
+		return err
+	}
+	printCheckResult(os.Stdout, apex, result)
+	return nil
+}
+
+func scopedCheckTarget(rawHostname string, apexes []string) (string, string, error) {
+	hostname := discover.NormalizeHostname(rawHostname)
+	if hostname == "" {
+		return "", "", fmt.Errorf("check target FQDN is required")
+	}
+	if strings.Contains(hostname, ":") {
+		return "", "", fmt.Errorf("check target must be an FQDN without port; use --port for non-443 TLS")
+	}
+	apex, ok := discover.ApexFor(hostname, apexes)
+	if !ok {
+		return "", "", fmt.Errorf("check target %q is outside configured apexes", hostname)
+	}
+	return hostname, apex, nil
+}
+
+func printCheckResult(out io.Writer, apex string, result probe.Result) {
+	cert := result.Certificate
+	fmt.Fprintf(out, "host: %s\n", result.Target.Hostname)
+	fmt.Fprintf(out, "port: %d\n", result.Target.Port)
+	fmt.Fprintf(out, "apex: %s\n", apex)
+	fmt.Fprintf(out, "fingerprint_sha256: %s\n", cert.Fingerprint)
+	fmt.Fprintf(out, "subject_cn: %s\n", cert.SubjectCN)
+	fmt.Fprintf(out, "issuer_cn: %s\n", cert.IssuerCN)
+	fmt.Fprintf(out, "issuer_org: %s\n", cert.IssuerOrg)
+	fmt.Fprintf(out, "not_before: %s\n", cert.NotBefore.Format(time.RFC3339))
+	fmt.Fprintf(out, "not_after: %s\n", cert.NotAfter.Format(time.RFC3339))
+	fmt.Fprintf(out, "lifetime_days: %d\n", cert.LifetimeDays)
+	fmt.Fprintf(out, "signature_algorithm: %s\n", cert.SigAlgorithm)
+	fmt.Fprintf(out, "key_algorithm: %s\n", cert.KeyAlgorithm)
+	fmt.Fprintf(out, "key_bits: %d\n", cert.KeyBits)
+	fmt.Fprintf(out, "chain_complete: %t\n", cert.ChainComplete)
+	fmt.Fprintf(out, "hostname_match: %t\n", cert.HostnameMatch)
+	fmt.Fprintf(out, "self_signed: %t\n", cert.IsSelfSigned)
+	fmt.Fprintf(out, "san_names:\n")
+	for _, name := range cert.SANNames {
+		fmt.Fprintf(out, "  - %s\n", name)
+	}
+	fmt.Fprintf(out, "probed_at: %s\n", result.ProbedAt.Format(time.RFC3339))
+}
+
 func usageError() error {
-	return fmt.Errorf("usage: certinv scan --config config.yaml | certinv serve --config config.yaml")
+	return fmt.Errorf("usage: certinv scan --config config.yaml | certinv serve --config config.yaml | certinv check --config config.yaml [--port 443] <fqdn>")
 }
