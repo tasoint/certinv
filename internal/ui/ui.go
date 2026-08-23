@@ -1,0 +1,251 @@
+package ui
+
+import (
+	"encoding/json"
+	"html/template"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/tasoint/certinv/internal/store"
+)
+
+type Handler struct {
+	store    store.Store
+	template *template.Template
+	now      func() time.Time
+}
+
+func New(st store.Store) (*Handler, error) {
+	tmpl, err := template.New("inventory").Funcs(template.FuncMap{
+		"shortFingerprint": shortFingerprint,
+		"splitSAN":         splitSAN,
+		"fallback":         fallback,
+	}).Parse(pageTemplate)
+	if err != nil {
+		return nil, err
+	}
+	return &Handler{
+		store:    st,
+		template: tmpl,
+		now:      time.Now,
+	}, nil
+}
+
+func (h *Handler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("/", h.redirectRoot)
+	mux.HandleFunc("/ui", h.serveInventory)
+}
+
+func (h *Handler) redirectRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		http.NotFound(w, r)
+		return
+	}
+	http.Redirect(w, r, "/ui", http.StatusFound)
+}
+
+func (h *Handler) serveInventory(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", http.MethodGet+", "+http.MethodHead)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	snapshot, err := h.store.InventorySnapshot(r.Context())
+	if err != nil {
+		http.Error(w, "failed to load inventory", http.StatusInternalServerError)
+		return
+	}
+	data := pageData{
+		GeneratedAt: h.now().UTC().Format(time.RFC3339),
+		Rows:        snapshot.Rows,
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.template.Execute(w, data); err != nil {
+		http.Error(w, "failed to render inventory", http.StatusInternalServerError)
+	}
+}
+
+type pageData struct {
+	GeneratedAt string
+	Rows        []store.InventoryRow
+}
+
+func shortFingerprint(fingerprint string) string {
+	if len(fingerprint) <= 12 {
+		return fingerprint
+	}
+	return fingerprint[:12]
+}
+
+func splitSAN(sanJSON string) []string {
+	sanJSON = strings.TrimSpace(sanJSON)
+	if sanJSON == "" || sanJSON == "[]" {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(sanJSON), &names); err != nil {
+		return nil
+	}
+	return names
+}
+
+func fallback(value, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+const pageTemplate = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>certinv inventory</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #182026;
+      --muted: #65717d;
+      --line: #d8dee4;
+      --warn: #9a6700;
+      --alert: #cf222e;
+      --ok: #1a7f37;
+      --misconfigured: #8250df;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      padding: 20px 24px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 650;
+    }
+    .meta {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    main {
+      padding: 20px 24px 28px;
+    }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+    table {
+      width: 100%;
+      min-width: 1120px;
+      border-collapse: collapse;
+    }
+    th, td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #eef2f6;
+      color: #38424d;
+      font-size: 12px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .muted { color: var(--muted); }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+    .state {
+      display: inline-block;
+      min-width: 78px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--line);
+      text-align: center;
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .state-healthy { color: var(--ok); border-color: #8fd19e; background: #dafbe1; }
+    .state-warn { color: var(--warn); border-color: #d4a72c; background: #fff8c5; }
+    .state-alert, .state-expired { color: var(--alert); border-color: #ff8182; background: #ffebe9; }
+    .state-misconfigured { color: var(--misconfigured); border-color: #d8b9ff; background: #fbefff; }
+    .san {
+      max-width: 260px;
+      white-space: normal;
+      color: var(--muted);
+    }
+    .empty {
+      padding: 30px;
+      color: var(--muted);
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>certinv inventory</h1>
+    <div class="meta">Generated at {{.GeneratedAt}}. Read-only view.</div>
+  </header>
+  <main>
+    {{if .Rows}}
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Host</th>
+            <th>Host status</th>
+            <th>Cert state</th>
+            <th>Not after</th>
+            <th>Issuer</th>
+            <th>Subject CN</th>
+            <th>Fingerprint</th>
+            <th>SAN</th>
+            <th>Last probed</th>
+            <th>Observed</th>
+            <th>Checks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Rows}}
+          <tr>
+            <td><strong>{{.Hostname}}</strong>:{{.Port}}<div class="muted">{{.Apex}} / {{.Source}}</div></td>
+            <td>{{.HostStatus}}</td>
+            <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .CertState "unknown"}}</span></td>
+            <td>{{fallback .NotAfter "-"}}</td>
+            <td>{{fallback .IssuerCN "-"}}<div class="muted">{{.IssuerOrg}}</div></td>
+            <td>{{fallback .SubjectCN "-"}}</td>
+            <td class="mono" title="{{.Fingerprint}}">{{shortFingerprint .Fingerprint}}</td>
+            <td class="san">{{range splitSAN .SANNames}}<div>{{.}}</div>{{else}}<span class="muted">-</span>{{end}}</td>
+            <td>{{fallback .LastProbedAt "-"}}</td>
+            <td>{{fallback .ObservedAt "-"}}</td>
+            <td>chain={{.ChainComplete}}<br>host={{.HostnameMatch}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="empty">No inventory rows yet.</div>
+    {{end}}
+  </main>
+</body>
+</html>`

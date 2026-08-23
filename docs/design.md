@@ -235,6 +235,29 @@ certinv_scan_duration_seconds
 certinv_scan_last_success_timestamp
 ```
 
+### 4.7 Web UI — 読み取り専用インベントリ表示
+
+`serve` モードのHTTPサーバに、ブラウザでインベントリを確認するための読み取り専用UIを
+追加する。主目的は「いま何が登録され、どの証明書が危ないか」を人間が素早く確認すること
+であり、設定変更・証明書更新・通知再送などの操作機能は持たせない。
+
+表示対象は §5 のデータモデルに保存されているメタデータをベースにする。
+
+- ホスト一覧: hostname / port / apex / source / host status / first_seen_at /
+  last_resolved_at / last_probed_at
+- 証明書一覧: fingerprint（短縮表示） / state / not_before / not_after /
+  lifetime_days / issuer_cn / issuer_org / subject_cn / SAN / last_seen_at
+- ホストと証明書の紐づき: observed_at / chain_complete / hostname_match
+- scan状況: 最終成功時刻、直近scanの概要（Prometheus exporter と同じ情報を再利用）
+
+UIは本ツールの絶対ルールに従い、証明書の生DER/PEMや秘密鍵素材を表示しない。
+出力してよいのは fingerprint、SAN、CN、issuer、有効期限、状態などのメタデータに限る。
+
+実装は Go 標準ライブラリの `net/http` と `html/template` によるサーバーサイドレンダリング
+とする。重いJavaScriptフレームワーク、フロントエンドのビルドパイプライン、新しい外部依存は
+導入しない。`serve` コマンドの既存HTTPサーバに `/ui` として同居させ、`/` は `/ui` に
+redirect する。`/metrics` はPrometheus用のまま維持する。
+
 ---
 
 ## 5. データモデル
@@ -286,6 +309,14 @@ CREATE TABLE host_certificates (
   PRIMARY KEY (host_id, fingerprint)
 );
 
+CREATE TABLE certificate_states (
+  host_id           INTEGER NOT NULL REFERENCES hosts(id),
+  fingerprint       TEXT NOT NULL REFERENCES certificates(fingerprint),
+  state             TEXT NOT NULL,      -- 'healthy' | 'warn' | 'alert' | 'expired' | 'misconfigured'
+  updated_at        TEXT NOT NULL,
+  PRIMARY KEY (host_id, fingerprint)
+);
+
 CREATE TABLE events (
   id                INTEGER PRIMARY KEY,
   kind              TEXT NOT NULL,
@@ -328,6 +359,11 @@ discovery:
   sources: [crtname, manual]
   crtname:
     endpoint: https://crt.name/v1/search
+  # v0.4 / PR #3: DNS zone file から取り込む場合
+  # sources: [crtname, manual, zone]
+  # zone:
+  #   files:
+  #     - ./example.com.zone
 
 probe:
   concurrency: 5
@@ -396,6 +432,7 @@ exporter:            # serve モードのみ
 | v0.3 | `serve` モード。スケジューラ + Prometheus exporter |
 | v0.4 | DNSゾーンファイル取り込み。自動化推定レポート |
 | v0.5 | ARI 対応。大規模向けの並列度・ストレージ最適化 |
+| v0.6 | `serve` モードに読み取り専用Web UIを追加 |
 
 ---
 

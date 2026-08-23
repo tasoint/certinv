@@ -23,6 +23,7 @@ type Store interface {
 	PendingEvents(ctx context.Context) ([]StoredEvent, error)
 	MarkEventNotified(ctx context.Context, eventID int64, now time.Time) error
 	MetricsSnapshot(ctx context.Context) (MetricsSnapshot, error)
+	InventorySnapshot(ctx context.Context) (InventorySnapshot, error)
 	Close() error
 }
 
@@ -54,4 +55,32 @@ type HostMetric struct {
 	Hostname  string
 	Port      int
 	Reachable bool
+}
+
+type InventorySnapshot struct {
+	Rows []InventoryRow
+}
+
+type InventoryRow struct {
+	Hostname       string
+	Port           int
+	Apex           string
+	Source         string
+	HostStatus     string
+	FirstSeenAt    string
+	LastResolvedAt string
+	LastProbedAt   string
+	Fingerprint    string
+	CertState      string
+	SubjectCN      string
+	IssuerCN       string
+	IssuerOrg      string
+	NotBefore      string
+	NotAfter       string
+	LifetimeDays   int
+	SANNames       string
+	ObservedAt     string
+	ChainComplete  bool
+	HostnameMatch  bool
+	LastSeenAt     string
 }
