@@ -1253,6 +1253,16 @@ const pageTemplate = `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>certinv inventory</title>
+  <script>
+    (function () {
+      try {
+        var theme = localStorage.getItem('certinv-theme');
+        if (theme === 'light' || theme === 'dark') {
+          document.documentElement.setAttribute('data-theme', theme);
+        }
+      } catch (error) {}
+    }());
+  </script>
   <style>
     :root {
       color-scheme: light;
@@ -1289,6 +1299,39 @@ const pageTemplate = `<!doctype html>
       .flash-error { border-color: #ff7b72; }
       .scan-status { border-color: #58a6ff; background: #102a43; }
     }
+    :root[data-theme="light"] {
+      color-scheme: light;
+      --bg: #f7f8fa;
+      --panel: #ffffff;
+      --text: #182026;
+      --muted: #65717d;
+      --line: #d8dee4;
+      --warn: #9a6700;
+      --alert: #cf222e;
+      --ok: #1a7f37;
+      --misconfigured: #8250df;
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #101418;
+      --panel: #1b2229;
+      --text: #e6edf3;
+      --muted: #9da7b1;
+      --line: #3b4652;
+      --warn: #d29922;
+      --alert: #ff7b72;
+      --ok: #56d364;
+      --misconfigured: #d2a8ff;
+    }
+    :root[data-theme="dark"] .button { background: #252d35; }
+    :root[data-theme="dark"] .state-healthy, :root[data-theme="dark"] .state-likely_auto { background: #12351f; }
+    :root[data-theme="dark"] .state-warn, :root[data-theme="dark"] .state-likely_manual { background: #3b2e05; }
+    :root[data-theme="dark"] .state-alert, :root[data-theme="dark"] .state-expired { background: #4b1818; }
+    :root[data-theme="dark"] .state-misconfigured { background: #2d1b3d; }
+    :root[data-theme="dark"] .state-unknown { background: #252d35; }
+    :root[data-theme="dark"] .flash-notice { border-color: #56d364; }
+    :root[data-theme="dark"] .flash-error { border-color: #ff7b72; }
+    :root[data-theme="dark"] .scan-status { border-color: #58a6ff; background: #102a43; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -1332,6 +1375,7 @@ const pageTemplate = `<!doctype html>
       background: var(--panel);
       border-bottom-color: var(--panel);
     }
+    .theme-toggle { margin-left: auto; }
     .button {
       display: inline-block;
       padding: 6px 10px;
@@ -1459,6 +1503,7 @@ const pageTemplate = `<!doctype html>
     <nav class="tabs">
       <a class="tab {{if .InventoryTab}}tab-active{{end}}" href="/ui?tab=inventory">Inventory</a>
       <a class="tab {{if .SourcesTab}}tab-active{{end}}" href="/ui?tab=sources">Sources &amp; Targets</a>
+      <button class="button theme-toggle" id="theme-toggle" type="button">Light / Dark</button>
     </nav>
   </header>
   <main>
@@ -1705,6 +1750,35 @@ const pageTemplate = `<!doctype html>
     </section>
     {{end}}
   </main>
+  <script>
+    (function () {
+      var button = document.getElementById('theme-toggle');
+      if (!button) return;
+      function storedTheme() {
+        try { return localStorage.getItem('certinv-theme'); } catch (error) { return ''; }
+      }
+      function prefersDark() {
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+      function activeTheme() {
+        var theme = document.documentElement.getAttribute('data-theme') || storedTheme();
+        if (theme === 'light' || theme === 'dark') return theme;
+        return prefersDark() ? 'dark' : 'light';
+      }
+      function updateButton() {
+        var next = activeTheme() === 'dark' ? 'light' : 'dark';
+        button.setAttribute('aria-label', 'Switch to ' + next + ' theme');
+        button.title = 'Switch to ' + next + ' theme';
+      }
+      button.addEventListener('click', function () {
+        var next = activeTheme() === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', next);
+        try { localStorage.setItem('certinv-theme', next); } catch (error) {}
+        updateButton();
+      });
+      updateButton();
+    }());
+  </script>
   {{if .PollScan}}
   <script>
     (function () {
