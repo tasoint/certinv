@@ -450,6 +450,21 @@ func TestHandlerAcceptsManualScan(t *testing.T) {
 	}
 }
 
+func TestHandlerScanLoadingMarkup(t *testing.T) {
+	handler, err := New(&fakeStore{}, WithScanTrigger(&fakeScanner{accepted: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	handler.serveInventory(rec, httptest.NewRequest(http.MethodGet, "/ui?notice=scan+accepted", nil))
+	body := rec.Body.String()
+	for _, want := range []string{"Scanning...", `id="run-scan"`, "disabled", "Date.now() - started > 60000", "may still be running"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("loading markup missing %q", want)
+		}
+	}
+}
+
 func TestHandlerPassesCrtNameScanOverride(t *testing.T) {
 	scanner := &fakeScanner{accepted: true}
 	handler, err := New(&fakeStore{}, WithScanTrigger(scanner))

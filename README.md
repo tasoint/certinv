@@ -112,6 +112,7 @@ suppressed hostの記録をまとめて完全削除します。
 横の `Include crt.name` は今回の手動scanだけに適用され、保存済み設定は変更しません。
 既にscan実行中の場合は新しい実行は拒否されます。手動scan受付後は `/ui/scan/status` を
 短時間ポーリングし、完了後にUIを再読み込みします。
+ポーリング中はScanning表示とボタン無効化を行い、60秒経過時は手動リロードを案内します。
 UIではapex/manual hostをDB管理のオーバーレイとして追加・削除できます。DB管理の
 manual hostはhostnameを固定したままportを編集できます。`config.yaml` の
 `apexes` / `manual_hosts` は引き続き真のbaseとして扱われ、UIから変更・削除されません。

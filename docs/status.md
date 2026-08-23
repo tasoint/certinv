@@ -30,6 +30,7 @@
 - `/ui/export.csv` によるインベントリCSV export
 - `/ui/scan` によるUIからの手動scan即時実行（二重起動防止あり）
 - `/ui/scan/status` による手動scan完了待ちポーリング
+- 手動scanのポーリング中にScanning表示・実行ボタン無効化・タイムアウト案内を表示
 - UIからのDB管理apex/manual hostオーバーレイ追加・削除・manual host port編集（config.yaml由来は変更しない）
 - Sources & Targetsタブからのapex指定crt.nameライブlookup、候補絞り込み、選択候補のmanaged manual host登録
 
