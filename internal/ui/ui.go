@@ -82,6 +82,7 @@ func New(st store.Store, opts ...Option) (*Handler, error) {
 		"shortFingerprint": shortFingerprint,
 		"splitSAN":         splitSAN,
 		"fallback":         fallback,
+		"displayOrigin":    displayOrigin,
 	}).Parse(pageTemplate)
 	if err != nil {
 		return nil, err
@@ -689,6 +690,19 @@ func fallback(value, fallback string) string {
 	return value
 }
 
+func displayOrigin(origin string) string {
+	switch strings.TrimSpace(origin) {
+	case "config":
+		return "config.yaml"
+	case "db":
+		return "Added in UI"
+	case "form":
+		return "Current form"
+	default:
+		return origin
+	}
+}
+
 func (h *Handler) pageData(ctx context.Context, tab, notice, messageError string) (pageData, error) {
 	snapshot, err := h.store.InventorySnapshot(ctx)
 	if err != nil {
@@ -1294,8 +1308,8 @@ const pageTemplate = `<!doctype html>
           <tbody>
             {{range .Targets.Apexes}}
             <tr>
-              <td>{{.Apex}}</td><td>{{.Origin}}</td>
-              <td>{{if .CanDelete}}<form method="post" action="/ui/apexes/delete?tab=sources"><input type="hidden" name="apex" value="{{.Apex}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
+              <td>{{.Apex}}</td><td>{{displayOrigin .Origin}}</td>
+              <td>{{if .CanDelete}}<form method="post" action="/ui/apexes/delete?tab=sources"><input type="hidden" name="apex" value="{{.Apex}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config.yaml</span>{{end}}</td>
             </tr>
             {{end}}
           </tbody>
@@ -1313,12 +1327,13 @@ const pageTemplate = `<!doctype html>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Hostname</th><th>Port</th><th>Apex</th><th>Origin</th><th>Action</th></tr></thead>
+          <thead><tr><th>Hostname</th><th>Apex</th><th>Origin</th><th>Port</th><th>Action</th></tr></thead>
           <tbody>
             {{range .Targets.ManualHosts}}
             <tr>
-              <td>{{.Hostname}}</td><td>{{.Port}}</td><td>{{.Apex}}</td><td>{{.Origin}}</td>
-              <td>{{if .CanDelete}}<form method="post" action="/ui/manual-hosts/edit?tab=sources" style="display:inline"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="old_port" value="{{.Port}}"><input name="port" value="{{.Port}}" size="5"><button class="button" type="submit">Update port</button></form> <form method="post" action="/ui/manual-hosts/delete?tab=sources" style="display:inline"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
+              <td>{{.Hostname}}</td><td>{{.Apex}}</td><td>{{displayOrigin .Origin}}</td>
+              <td>{{if .CanDelete}}<form method="post" action="/ui/manual-hosts/edit?tab=sources" style="display:inline"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="old_port" value="{{.Port}}"><input name="port" value="{{.Port}}" size="5"><button class="button" type="submit">Update port</button></form>{{else}}{{.Port}}{{end}}</td>
+              <td>{{if .CanDelete}}<form method="post" action="/ui/manual-hosts/delete?tab=sources" style="display:inline"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config.yaml</span>{{end}}</td>
             </tr>
             {{end}}
           </tbody>
@@ -1335,7 +1350,7 @@ const pageTemplate = `<!doctype html>
         </select>
         <button class="button" type="submit">Save crt.name</button>
         <button class="button" type="submit" formaction="/ui/crtname/lookup?tab=sources">Lookup now</button>
-        <span class="muted">origin={{.Sources.CrtName.Origin}}</span>
+        <span class="muted">origin={{displayOrigin .Sources.CrtName.Origin}}</span>
       </form>
       <div class="meta">Saving applies this setting to future scheduled scans and Run scan now.</div>
       <div class="meta">Saved setting: enabled={{.Sources.SavedCrtName.Enabled}} endpoint={{.Sources.SavedCrtName.Endpoint}}</div>
@@ -1383,9 +1398,9 @@ const pageTemplate = `<!doctype html>
         <table>
           <thead><tr><th>Origin</th><th>Path</th><th>Action</th></tr></thead>
           <tbody>
-            {{range .Sources.Zone.ConfigFiles}}<tr><td>config</td><td>{{.}}</td><td><span class="muted">config</span></td></tr>{{end}}
+            {{range .Sources.Zone.ConfigFiles}}<tr><td>config.yaml</td><td>{{.}}</td><td><span class="muted">config.yaml</span></td></tr>{{end}}
             {{range .Sources.Zone.ManagedFiles}}
-            <tr><td>db</td><td>{{.Path}}</td><td><form method="post" action="/ui/zone-files/delete?tab=sources"><input type="hidden" name="path" value="{{.Path}}"><button class="button" type="submit">Delete</button></form></td></tr>
+            <tr><td>Added in UI</td><td>{{.Path}}</td><td><form method="post" action="/ui/zone-files/delete?tab=sources"><input type="hidden" name="path" value="{{.Path}}"><button class="button" type="submit">Delete</button></form></td></tr>
             {{end}}
           </tbody>
         </table>
