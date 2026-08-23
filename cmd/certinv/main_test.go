@@ -205,9 +205,12 @@ func TestOptionalBasicAuthProtectsUIManagement(t *testing.T) {
 	mux.HandleFunc("/ui/crtname", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusSeeOther)
 	})
+	mux.HandleFunc("/ui/hosts/purge", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusSeeOther)
+	})
 	handler := withOptionalBasicAuth(mux, config.ExporterAuth{Username: "operator", Password: "secret"})
 
-	for _, path := range []string{"/ui/manual-hosts", "/ui/crtname"} {
+	for _, path := range []string{"/ui/manual-hosts", "/ui/crtname", "/ui/hosts/purge"} {
 		req := httptest.NewRequest(http.MethodPost, path, nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -222,6 +225,28 @@ func TestOptionalBasicAuthProtectsUIManagement(t *testing.T) {
 		if rec.Code != http.StatusSeeOther {
 			t.Fatalf("%s authenticated status = %d, want %d", path, rec.Code, http.StatusSeeOther)
 		}
+	}
+}
+
+func TestOptionalBasicAuthProtectsScanStatus(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ui/scan/status", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := withOptionalBasicAuth(mux, config.ExporterAuth{Username: "operator", Password: "secret"})
+
+	req := httptest.NewRequest(http.MethodGet, "/ui/scan/status", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/ui/scan/status", nil)
+	req.SetBasicAuth("operator", "secret")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("authenticated status = %d, want %d", rec.Code, http.StatusOK)
 	}
 }
 
@@ -240,6 +265,9 @@ func TestSerialScanRunnerRejectsConcurrentManualScan(t *testing.T) {
 		t.Fatal("first TriggerScan() = false, want true")
 	}
 	<-started
+	if !scans.Running() {
+		t.Fatal("Running() = false, want true")
+	}
 	if scans.TriggerScan() {
 		t.Fatal("second TriggerScan() = true, want false while running")
 	}

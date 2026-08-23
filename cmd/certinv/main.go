@@ -192,6 +192,12 @@ func (r *serialScanRunner) TriggerScan() bool {
 	return true
 }
 
+func (r *serialScanRunner) Running() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.running
+}
+
 func (r *serialScanRunner) start() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()

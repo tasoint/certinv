@@ -480,6 +480,41 @@ func (s *Store) UnsuppressHost(ctx context.Context, hostname string, port int) e
 	return nil
 }
 
+func (s *Store) PurgeHost(ctx context.Context, hostname string, port int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin purge host %s:%d: %w", hostname, port, err)
+	}
+	defer tx.Rollback()
+
+	var hostID int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM hosts WHERE hostname = ? AND port = ?`, hostname, port).Scan(&hostID)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("select purge host %s:%d: %w", hostname, port, err)
+	}
+	if err == nil {
+		for _, statement := range []string{
+			`DELETE FROM host_certificates WHERE host_id = ?`,
+			`DELETE FROM certificate_states WHERE host_id = ?`,
+			`DELETE FROM hosts WHERE id = ?`,
+		} {
+			if _, err := tx.ExecContext(ctx, statement, hostID); err != nil {
+				return fmt.Errorf("purge host %s:%d: %w", hostname, port, err)
+			}
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM suppressed_hosts WHERE hostname = ? AND port = ?`, hostname, port); err != nil {
+		return fmt.Errorf("purge suppressed host %s:%d: %w", hostname, port, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit purge host %s:%d: %w", hostname, port, err)
+	}
+	return nil
+}
+
 func (s *Store) ManagedTargets(ctx context.Context) (store.ManagedTargets, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

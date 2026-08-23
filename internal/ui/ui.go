@@ -33,6 +33,7 @@ type Handler struct {
 
 type ScanTrigger interface {
 	TriggerScan() bool
+	Running() bool
 }
 
 type Option func(*Handler)
@@ -101,12 +102,14 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/ui/export.csv", h.serveExportCSV)
 	mux.HandleFunc("/ui/events/", h.acknowledgeEvent)
 	mux.HandleFunc("/ui/scan", h.serveScan)
+	mux.HandleFunc("/ui/scan/status", h.serveScanStatus)
 	mux.HandleFunc("/ui/apexes", h.serveAddApex)
 	mux.HandleFunc("/ui/apexes/delete", h.serveDeleteApex)
 	mux.HandleFunc("/ui/manual-hosts", h.serveAddManualHost)
 	mux.HandleFunc("/ui/manual-hosts/delete", h.serveDeleteManualHost)
 	mux.HandleFunc("/ui/hosts/suppress", h.serveSuppressHost)
 	mux.HandleFunc("/ui/hosts/unsuppress", h.serveUnsuppressHost)
+	mux.HandleFunc("/ui/hosts/purge", h.servePurgeHost)
 	mux.HandleFunc("/ui/crtname", h.serveSaveCrtName)
 	mux.HandleFunc("/ui/zone-files", h.serveAddZoneFile)
 	mux.HandleFunc("/ui/zone-files/delete", h.serveDeleteZoneFile)
@@ -150,6 +153,7 @@ func (h *Handler) serveInventory(w http.ResponseWriter, r *http.Request) {
 		Notice:      r.URL.Query().Get("notice"),
 		Error:       r.URL.Query().Get("error"),
 	}
+	data.PollScan = data.Notice == "scan accepted"
 	data.InventoryTab = data.Tab == "inventory"
 	data.SourcesTab = data.Tab == "sources"
 	if targets, err := h.targetRows(r.Context()); err == nil {
@@ -179,6 +183,24 @@ func (h *Handler) serveScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirectUINotice(w, r, "scan accepted")
+}
+
+func (h *Handler) serveScanStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", http.MethodGet+", "+http.MethodHead)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	running := false
+	if h.scanner != nil {
+		running = h.scanner.Running()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(struct {
+		Running bool `json:"running"`
+	}{Running: running}); err != nil {
+		http.Error(w, "failed to render scan status", http.StatusInternalServerError)
+	}
 }
 
 func (h *Handler) serveAddApex(w http.ResponseWriter, r *http.Request) {
@@ -415,6 +437,29 @@ func (h *Handler) serveUnsuppressHost(w http.ResponseWriter, r *http.Request) {
 	redirectUINotice(w, r, "host unsuppressed")
 }
 
+func (h *Handler) servePurgeHost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirectUIError(w, r, "invalid form")
+		return
+	}
+	hostname := discover.NormalizeHostname(r.FormValue("hostname"))
+	port, err := parsePort(r.FormValue("port"))
+	if hostname == "" || err != nil {
+		redirectUIError(w, r, "invalid host")
+		return
+	}
+	if err := h.store.PurgeHost(r.Context(), hostname, port); err != nil {
+		redirectUIError(w, r, "failed to purge host")
+		return
+	}
+	redirectUINotice(w, r, "host purged")
+}
+
 func (h *Handler) acknowledgeEvent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
@@ -459,6 +504,7 @@ type pageData struct {
 	Sources      sourceRows
 	Notice       string
 	Error        string
+	PollScan     bool
 }
 
 type targetRows struct {
@@ -1123,7 +1169,7 @@ const pageTemplate = `<!doctype html>
             <thead><tr><th>Host</th><th>Action</th></tr></thead>
             <tbody>
               {{range .Suppressed}}
-              <tr><td>{{.Hostname}}:{{.Port}}</td><td><form method="post" action="/ui/hosts/unsuppress"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Unsuppress</button></form></td></tr>
+              <tr><td>{{.Hostname}}:{{.Port}}</td><td><form method="post" action="/ui/hosts/unsuppress" style="display:inline"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Unsuppress</button></form> <form method="post" action="/ui/hosts/purge" style="display:inline" onsubmit="return confirm('このホストの記録を完全に削除します。元に戻せません。よろしいですか？')"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Purge</button></form></td></tr>
               {{end}}
             </tbody>
           </table>
@@ -1135,5 +1181,26 @@ const pageTemplate = `<!doctype html>
     </section>
     {{end}}
   </main>
+  {{if .PollScan}}
+  <script>
+    (function () {
+      var started = Date.now();
+      function poll() {
+        if (Date.now() - started > 60000) return;
+        fetch('/ui/scan/status', {credentials: 'same-origin'})
+          .then(function (response) { return response.ok ? response.json() : {running: true}; })
+          .then(function (status) {
+            if (!status.running) {
+              window.location = '/ui';
+              return;
+            }
+            setTimeout(poll, 1500);
+          })
+          .catch(function () { setTimeout(poll, 1500); });
+      }
+      setTimeout(poll, 1500);
+    }());
+  </script>
+  {{end}}
 </body>
 </html>`

@@ -99,13 +99,15 @@ go run ./cmd/certinv serve --config config.yaml
 `Inventory` と `Sources & Targets` のタブに分かれており、`/` は `/ui` にリダイレクトします。
 UIから手動scanの実行、イベント／アラートの確認済み化、apex／manual hostの登録内容管理を行えます。
 インベントリ行の `Suppress` でホストを一覧と次回以降のscan対象から除外でき、
-`Suppressed hosts` セクションの `Unsuppress` で復元できます。
+`Suppressed hosts` セクションの `Unsuppress` で復元できます。`Purge` はsuppressed hostの
+host記録と証明書紐付けを完全削除しますが、証明書メタデータ本体は削除しません。
 未確認の warn / alert イベントは `/ui` から確認済みにできます。証明書の発行・更新や
 秘密鍵の操作は行いません。
 `/ui/export.csv` では、UIのインベントリ一覧と同等の証明書メタデータをCSVで
 ダウンロードできます。
 `/ui` の `Run scan now` ボタンから、設定済みapexを対象にしたscanを即時実行できます。
-既にscan実行中の場合は新しい実行は拒否されます。
+既にscan実行中の場合は新しい実行は拒否されます。手動scan受付後は `/ui/scan/status` を
+短時間ポーリングし、完了後にUIを再読み込みします。
 UIではapex/manual hostをDB管理のオーバーレイとして追加・削除できます。`config.yaml` の
 `apexes` / `manual_hosts` は引き続き真のbaseとして扱われ、UIから変更・削除されません。
 crt.nameの有効/無効とendpoint、zone fileの追加もDB管理のオーバーレイとして保存されます。

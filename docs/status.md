@@ -29,6 +29,7 @@
 - `/ui` のインベントリ表示
 - `/ui/export.csv` によるインベントリCSV export
 - `/ui/scan` によるUIからの手動scan即時実行（二重起動防止あり）
+- `/ui/scan/status` による手動scan完了待ちポーリング
 - UIからのDB管理apex/manual hostオーバーレイ追加・削除（config.yaml由来は変更しない）
 
 ## 実装済みの追加機能
@@ -38,6 +39,7 @@
 - 確認状態は `events.acknowledged_at` / `acknowledged_by` に保存し、証明書情報は変更しない
 - UIからホストを suppress し、次回以降の discovery / scan とインベントリ一覧から除外
 - `Suppressed hosts` セクションから unsuppress して復元可能
+- `Suppressed hosts` セクションからhost記録と証明書紐付けをpurge可能
 
 ## 検証コマンド
 
