@@ -98,6 +98,8 @@ go run ./cmd/certinv serve --config config.yaml
 `serve` では Prometheus metrics を `/metrics` で提供します。`/ui` でインベントリ一覧と
 限定的な運用操作を提供し、`/` は `/ui` にリダイレクトします。UIから手動scanの実行、
 イベント／アラートの確認済み化、apex／manual hostの登録内容管理を行える設計です。
+`/ui/export.csv` では、UIのインベントリ一覧と同等の証明書メタデータをCSVで
+ダウンロードできます。
 
 `exporter.basic_auth.username` と `exporter.basic_auth.password` の両方を設定すると、
 `/metrics` と `/ui` はBasic認証で保護されます。両方空の場合は認証なしで動作し、
