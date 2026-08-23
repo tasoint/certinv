@@ -50,6 +50,9 @@ func TestHandlerExportsStoreAndScanMetrics(t *testing.T) {
 	if err := db.LinkHostCertificate(ctx, hostID, "abc123", true, true, now); err != nil {
 		t.Fatalf("LinkHostCertificate() error = %v", err)
 	}
+	if err := db.SetAutomationClass(ctx, hostID, "abc123", "likely_auto"); err != nil {
+		t.Fatalf("SetAutomationClass() error = %v", err)
+	}
 
 	exp := New(db)
 	exp.RecordScan(core.Summary{Probed: 1}, 1500*time.Millisecond, true, now)
@@ -62,9 +65,9 @@ func TestHandlerExportsStoreAndScanMetrics(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`certinv_cert_not_after_timestamp{common_name="www.example.com",fingerprint="abc123",issuer="Test CA"}`,
-		`certinv_cert_lifetime_days{common_name="www.example.com",fingerprint="abc123",issuer="Test CA"}`,
-		`certinv_cert_remaining_ratio{common_name="www.example.com",fingerprint="abc123",issuer="Test CA"}`,
+		`certinv_cert_not_after_timestamp{automation="likely_auto",common_name="www.example.com",fingerprint="abc123",issuer="Test CA"}`,
+		`certinv_cert_lifetime_days{automation="likely_auto",common_name="www.example.com",fingerprint="abc123",issuer="Test CA"}`,
+		`certinv_cert_remaining_ratio{automation="likely_auto",common_name="www.example.com",fingerprint="abc123",issuer="Test CA"}`,
 		"certinv_host_reachable",
 		"certinv_scan_duration_seconds 1.5",
 		"certinv_scan_last_success_timestamp",

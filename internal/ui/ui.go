@@ -1188,6 +1188,7 @@ var csvHeader = []string{
 	"source",
 	"host_status",
 	"cert_state",
+	"automation",
 	"not_before",
 	"not_after",
 	"issuer_cn",
@@ -1213,6 +1214,7 @@ func csvRow(row store.InventoryRow) []string {
 		row.Source,
 		row.HostStatus,
 		row.CertState,
+		fallback(row.Automation, "unknown"),
 		row.NotBefore,
 		row.NotAfter,
 		row.IssuerCN,
@@ -1383,6 +1385,9 @@ const pageTemplate = `<!doctype html>
     .state-warn { color: var(--warn); border-color: #d4a72c; background: #fff8c5; }
     .state-alert, .state-expired { color: var(--alert); border-color: #ff8182; background: #ffebe9; }
     .state-misconfigured { color: var(--misconfigured); border-color: #d8b9ff; background: #fbefff; }
+    .state-likely_auto { color: var(--ok); border-color: #8fd19e; background: #dafbe1; }
+    .state-likely_manual { color: var(--warn); border-color: #d4a72c; background: #fff8c5; }
+    .state-unknown { color: var(--muted); border-color: var(--line); background: #eef2f6; }
     .san {
       max-width: 260px;
       white-space: normal;
@@ -1601,6 +1606,7 @@ const pageTemplate = `<!doctype html>
             <th>Host</th>
             <th>Host status</th>
             <th>Cert state</th>
+            <th>Automation</th>
             <th>Not after</th>
             <th>Issuer</th>
             <th>Subject CN</th>
@@ -1618,6 +1624,7 @@ const pageTemplate = `<!doctype html>
             <td><strong>{{.Hostname}}</strong>:{{.Port}}<div class="muted">{{.Apex}} / {{.Source}}</div></td>
             <td>{{.HostStatus}}</td>
             <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .CertState "unknown"}}</span></td>
+            <td><span class="state state-{{fallback .Automation "unknown"}}">{{fallback .Automation "unknown"}}</span></td>
             <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .NotAfter "-"}}</span></td>
             <td>{{fallback .IssuerCN "-"}}<div class="muted">{{.IssuerOrg}}</div></td>
             <td>{{fallback .SubjectCN "-"}}</td>

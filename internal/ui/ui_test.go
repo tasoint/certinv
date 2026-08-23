@@ -34,6 +34,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 				Source:        "manual",
 				HostStatus:    "active",
 				CertState:     "healthy",
+				Automation:    "likely_auto",
 				Fingerprint:   "abcdef1234567890",
 				SubjectCN:     "www.example.com",
 				IssuerCN:      "Test CA",
@@ -61,7 +62,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "remaining validity ratio", "expiring", "/ui/events/7/ack", "/ui/scan", "inventory-host-filter", "inventory-status-filter", "inventory-page-size", "inventory-prev-page", "inventory-page-label", "inventory-next-page", "filteredRows", "resetInventoryPage", "Page 1 / 1", "data-inventory-host=\"www.example.com\"", "data-cert-state=\"healthy\"", "<td><span class=\"state state-healthy\">2026-11-17T12:44:20Z</span></td>", "applyInventoryFilters", "All clear", "/ui/hosts/suppress-all", "Purge all", "/ui/hosts/purge-all", "saved", "problem"} {
+	for _, want := range []string{"www.example.com", "healthy", "likely_auto", "Automation", "state-likely_auto", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "remaining validity ratio", "expiring", "/ui/events/7/ack", "/ui/scan", "inventory-host-filter", "inventory-status-filter", "inventory-page-size", "inventory-prev-page", "inventory-page-label", "inventory-next-page", "filteredRows", "resetInventoryPage", "Page 1 / 1", "data-inventory-host=\"www.example.com\"", "data-cert-state=\"healthy\"", "<td><span class=\"state state-healthy\">2026-11-17T12:44:20Z</span></td>", "applyInventoryFilters", "All clear", "/ui/hosts/suppress-all", "Purge all", "/ui/hosts/purge-all", "saved", "problem"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
@@ -563,6 +564,7 @@ func TestHandlerExportsInventoryCSV(t *testing.T) {
 			Source:         "manual",
 			HostStatus:     "active",
 			CertState:      "healthy",
+			Automation:     "likely_auto",
 			Fingerprint:    "abcdef1234567890",
 			SubjectCN:      "www.example.com",
 			IssuerCN:       "Test CA",
@@ -601,13 +603,13 @@ func TestHandlerExportsInventoryCSV(t *testing.T) {
 		t.Fatalf("csv rows = %d, want 2: %#v", len(records), records)
 	}
 	header := strings.Join(records[0], ",")
-	for _, want := range []string{"host", "port", "apex", "issuer_cn", "fingerprint", "san", "observed_at"} {
+	for _, want := range []string{"host", "port", "apex", "automation", "issuer_cn", "fingerprint", "san", "observed_at"} {
 		if !strings.Contains(header, want) {
 			t.Fatalf("header missing %q: %s", want, header)
 		}
 	}
 	row := records[1]
-	for _, want := range []string{"www.example.com", "443", "example.com", "Test CA", "Example Org", "abcdef1234567890", "www.example.com;example.com", "true"} {
+	for _, want := range []string{"www.example.com", "443", "example.com", "likely_auto", "Test CA", "Example Org", "abcdef1234567890", "www.example.com;example.com", "true"} {
 		if !containsCSVField(row, want) {
 			t.Fatalf("row missing %q: %#v", want, row)
 		}

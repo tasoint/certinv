@@ -2,6 +2,8 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -9,6 +11,53 @@ import (
 	"github.com/tasoint/certinv/internal/discover"
 	"github.com/tasoint/certinv/internal/evaluate"
 )
+
+func TestMigratesHostCertificateAutomationClass(t *testing.T) {
+	ctx := context.Background()
+	dsn := filepath.Join(t.TempDir(), "old.db")
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("open raw db: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `CREATE TABLE host_certificates (
+  host_id INTEGER NOT NULL,
+  fingerprint TEXT NOT NULL,
+  observed_at TEXT NOT NULL,
+  chain_complete INTEGER,
+  hostname_match INTEGER,
+  PRIMARY KEY (host_id, fingerprint)
+)`); err != nil {
+		t.Fatalf("create old host_certificates: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close raw db: %v", err)
+	}
+
+	store, err := Open(ctx, dsn)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	columns := map[string]bool{}
+	rows, err := store.db.QueryContext(ctx, `PRAGMA table_info(host_certificates)`)
+	if err != nil {
+		t.Fatalf("pragma host_certificates: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			t.Fatalf("scan column: %v", err)
+		}
+		columns[name] = true
+	}
+	if !columns["http_status"] || !columns["automation_class"] {
+		t.Fatalf("migrated columns = %#v", columns)
+	}
+}
 
 func TestStorePersistsHostCertificateLink(t *testing.T) {
 	ctx := context.Background()
@@ -190,6 +239,9 @@ func TestMetricsSnapshot(t *testing.T) {
 	if err := store.LinkHostCertificate(ctx, hostID, "abc123", true, true, now); err != nil {
 		t.Fatalf("LinkHostCertificate() error = %v", err)
 	}
+	if err := store.SetAutomationClass(ctx, hostID, "abc123", "likely_auto"); err != nil {
+		t.Fatalf("SetAutomationClass() error = %v", err)
+	}
 
 	snapshot, err := store.MetricsSnapshot(ctx)
 	if err != nil {
@@ -203,6 +255,9 @@ func TestMetricsSnapshot(t *testing.T) {
 	}
 	if !snapshot.Hosts[0].Reachable {
 		t.Fatal("host reachable = false, want true")
+	}
+	if snapshot.Certificates[0].Automation != "likely_auto" {
+		t.Fatalf("automation = %q, want likely_auto", snapshot.Certificates[0].Automation)
 	}
 }
 func TestInventorySnapshot(t *testing.T) {
@@ -250,6 +305,9 @@ func TestInventorySnapshot(t *testing.T) {
 	if err := store.SetHTTPStatus(ctx, hostID, certificate.Fingerprint, 502); err != nil {
 		t.Fatalf("SetHTTPStatus() error = %v", err)
 	}
+	if err := store.SetAutomationClass(ctx, hostID, certificate.Fingerprint, "likely_manual"); err != nil {
+		t.Fatalf("SetAutomationClass() error = %v", err)
+	}
 
 	snapshot, err := store.InventorySnapshot(ctx)
 	if err != nil {
@@ -259,7 +317,7 @@ func TestInventorySnapshot(t *testing.T) {
 		t.Fatalf("rows = %d, want 1", len(snapshot.Rows))
 	}
 	row := snapshot.Rows[0]
-	if row.Hostname != "www.example.com" || row.Fingerprint != "abc123" || row.CertState != evaluate.StateHealthy || row.HTTPStatus != 502 {
+	if row.Hostname != "www.example.com" || row.Fingerprint != "abc123" || row.CertState != evaluate.StateHealthy || row.HTTPStatus != 502 || row.Automation != "likely_manual" {
 		t.Fatalf("row = %#v", row)
 	}
 	if row.SANNames == "" || row.SANNames == "[]" {
