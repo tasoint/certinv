@@ -38,17 +38,16 @@ type Summary struct {
 }
 
 type Runner struct {
-	Config          *config.Config
-	Sources         []discover.Source
-	Resolver        resolve.Resolver
-	Prober          probe.Prober
-	Store           store.Store
-	Notifiers       []notify.Notifier
-	Recorder        ScanRecorder
-	Now             func() time.Time
-	Logger          *slog.Logger
-	Out             io.Writer
-	CrtNameOverride *bool
+	Config    *config.Config
+	Sources   []discover.Source
+	Resolver  resolve.Resolver
+	Prober    probe.Prober
+	Store     store.Store
+	Notifiers []notify.Notifier
+	Recorder  ScanRecorder
+	Now       func() time.Time
+	Logger    *slog.Logger
+	Out       io.Writer
 }
 
 type ScanRecorder interface {
@@ -88,15 +87,6 @@ func NewRunner(cfg *config.Config, st store.Store, out io.Writer, logger *slog.L
 }
 
 func (r Runner) Run(ctx context.Context) (summary Summary, err error) {
-	return r.run(ctx)
-}
-
-type RunOptions struct {
-	CrtNameEnabled *bool
-}
-
-func (r Runner) RunWithOptions(ctx context.Context, options RunOptions) (Summary, error) {
-	r.CrtNameOverride = options.CrtNameEnabled
 	return r.run(ctx)
 }
 
@@ -291,12 +281,16 @@ func (r Runner) effectiveSources(ctx context.Context) ([]discover.Source, error)
 		if managed.CrtNameEndpoint != "" {
 			crtNameEndpoint = managed.CrtNameEndpoint
 		}
-		if r.CrtNameOverride != nil {
-			crtNameEnabled = *r.CrtNameOverride
-		}
 	}
 	if crtNameEnabled {
-		sources = append(sources, crtname.New(crtNameEndpoint))
+		apexes, err := r.effectiveApexes(ctx)
+		if err != nil {
+			return nil, err
+		}
+		sources = append(sources, scopedSource{
+			source: crtname.New(crtNameEndpoint),
+			apexes: enabledCrtNameApexes(apexes, managed.ApexCrtName),
+		})
 	}
 	zoneFiles := append([]string{}, r.Config.Discovery.Zone.Files...)
 	for _, file := range managed.ZoneFiles {
@@ -306,6 +300,40 @@ func (r Runner) effectiveSources(ctx context.Context) ([]discover.Source, error)
 		sources = append(sources, zonefile.New(zoneFiles))
 	}
 	return sources, nil
+}
+
+type scopedSource struct {
+	source discover.Source
+	apexes []string
+}
+
+func (s scopedSource) Name() string {
+	return s.source.Name()
+}
+
+func (s scopedSource) Discover(ctx context.Context, _ []string) ([]discover.Host, error) {
+	return s.source.Discover(ctx, s.apexes)
+}
+
+func enabledCrtNameApexes(apexes []string, settings []store.ManagedApexCrtName) []string {
+	disabled := make(map[string]struct{}, len(settings))
+	for _, setting := range settings {
+		if !setting.Enabled {
+			disabled[discover.NormalizeHostname(setting.Apex)] = struct{}{}
+		}
+	}
+	var enabled []string
+	for _, apex := range apexes {
+		apex = discover.NormalizeHostname(apex)
+		if apex == "" {
+			continue
+		}
+		if _, ok := disabled[apex]; ok {
+			continue
+		}
+		enabled = append(enabled, apex)
+	}
+	return enabled
 }
 
 func (r Runner) effectiveApexes(ctx context.Context) ([]string, error) {

@@ -41,6 +41,7 @@ type Store interface {
 	DeleteManagedManualHost(ctx context.Context, hostname string, port int) error
 	ManagedDiscovery(ctx context.Context) (ManagedDiscovery, error)
 	SaveManagedCrtName(ctx context.Context, enabled bool, endpoint string, now time.Time) error
+	SaveManagedApexCrtName(ctx context.Context, apex string, enabled bool, now time.Time) error
 	AddManagedZoneFile(ctx context.Context, path string, now time.Time) error
 	DeleteManagedZoneFile(ctx context.Context, path string) error
 	Close() error
@@ -110,7 +111,14 @@ type ManagedDiscovery struct {
 	CrtNameSet      bool
 	CrtNameEnabled  bool
 	CrtNameEndpoint string
+	ApexCrtName     []ManagedApexCrtName
 	ZoneFiles       []ManagedZoneFile
+}
+
+type ManagedApexCrtName struct {
+	Apex    string
+	Enabled bool
+	Updated string
 }
 
 type ManagedZoneFile struct {

@@ -411,6 +411,9 @@ func TestManagedDiscovery(t *testing.T) {
 	if err := store.AddManagedZoneFile(ctx, "/tmp/example.zone", now); err != nil {
 		t.Fatalf("AddManagedZoneFile() error = %v", err)
 	}
+	if err := store.SaveManagedApexCrtName(ctx, "example.com", false, now); err != nil {
+		t.Fatalf("SaveManagedApexCrtName() error = %v", err)
+	}
 	discovery, err := store.ManagedDiscovery(ctx)
 	if err != nil {
 		t.Fatalf("ManagedDiscovery() error = %v", err)
@@ -420,6 +423,9 @@ func TestManagedDiscovery(t *testing.T) {
 	}
 	if len(discovery.ZoneFiles) != 1 || discovery.ZoneFiles[0].Path != "/tmp/example.zone" {
 		t.Fatalf("zone files = %#v", discovery.ZoneFiles)
+	}
+	if len(discovery.ApexCrtName) != 1 || discovery.ApexCrtName[0].Apex != "example.com" || discovery.ApexCrtName[0].Enabled {
+		t.Fatalf("apex crtname = %#v", discovery.ApexCrtName)
 	}
 	if err := store.DeleteManagedZoneFile(ctx, "/tmp/example.zone"); err != nil {
 		t.Fatalf("DeleteManagedZoneFile() error = %v", err)

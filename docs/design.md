@@ -269,9 +269,12 @@ certinv_scan_last_success_timestamp
    方式を検討する。追加・削除時も §2 のスコープ検証を行い、登録外ドメインは処理しない。
 4. **discovery source 設定のオーバーレイ**: UIは `Inventory` と `Sources & Targets` の
    タブに分ける。`Sources & Targets` では `config.yaml` をbaseとして、crt.nameの
-   有効/無効とendpoint、zone file追加分をDBオーバーレイとして保存する。`config.yaml` は
-   書き換えない。zone fileは `discovery.zone.allowed_dir` 配下の実在ファイルだけを選択
-   できるようにし、正規化後のパスが許可ディレクトリ配下であることを検証する。
+   有効/無効とendpoint、apexごとのcrt.name有効/無効、zone file追加分をDBオーバーレイとして
+   保存する。crt.nameの全体設定はマスタースイッチで、OFFの場合はapexごとの設定に関わらず
+   crt.name discovery全体を無効にする。apexごとの設定はデフォルトONとし、`config.yaml`
+   由来のapexにもDB側で設定だけを保存できる。`config.yaml` は書き換えない。zone fileは
+   `discovery.zone.allowed_dir` 配下の実在ファイルだけを選択できるようにし、正規化後のパスが
+   許可ディレクトリ配下であることを検証する。
 
 UIは本ツールの絶対ルールに従い、証明書の生DER/PEMや秘密鍵素材を表示しない。
 出力してよいのは fingerprint、SAN、CN、issuer、有効期限、状態などのメタデータに限る。

@@ -652,6 +652,28 @@ WHERE id = 1
 		discovery.CrtNameEnabled = enabled == 1
 	}
 
+	apexRows, err := s.db.QueryContext(ctx, `
+SELECT apex, enabled, updated_at
+FROM managed_apex_crtname
+ORDER BY apex
+`)
+	if err != nil {
+		return store.ManagedDiscovery{}, fmt.Errorf("select managed apex crtname: %w", err)
+	}
+	defer apexRows.Close()
+	for apexRows.Next() {
+		var setting store.ManagedApexCrtName
+		var enabled int
+		if err := apexRows.Scan(&setting.Apex, &enabled, &setting.Updated); err != nil {
+			return store.ManagedDiscovery{}, fmt.Errorf("scan managed apex crtname: %w", err)
+		}
+		setting.Enabled = enabled == 1
+		discovery.ApexCrtName = append(discovery.ApexCrtName, setting)
+	}
+	if err := apexRows.Err(); err != nil {
+		return store.ManagedDiscovery{}, fmt.Errorf("iterate managed apex crtname: %w", err)
+	}
+
 	rows, err := s.db.QueryContext(ctx, `
 SELECT path, added_at
 FROM managed_zone_files
@@ -688,6 +710,23 @@ ON CONFLICT(id) DO UPDATE SET
 `, boolInt(enabled), endpoint, formatTime(now))
 	if err != nil {
 		return fmt.Errorf("save managed crtname: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) SaveManagedApexCrtName(ctx context.Context, apex string, enabled bool, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO managed_apex_crtname (apex, enabled, updated_at)
+VALUES (?, ?, ?)
+ON CONFLICT(apex) DO UPDATE SET
+  enabled = excluded.enabled,
+  updated_at = excluded.updated_at
+`, apex, boolInt(enabled), formatTime(now))
+	if err != nil {
+		return fmt.Errorf("save managed apex crtname %q: %w", apex, err)
 	}
 	return nil
 }
@@ -884,6 +923,11 @@ var schema = []string{
   id              INTEGER PRIMARY KEY CHECK (id = 1),
   enabled         INTEGER NOT NULL,
   endpoint        TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+)`,
+	`CREATE TABLE IF NOT EXISTS managed_apex_crtname (
+  apex            TEXT PRIMARY KEY,
+  enabled         INTEGER NOT NULL DEFAULT 1,
   updated_at      TEXT NOT NULL
 )`,
 	`CREATE TABLE IF NOT EXISTS managed_zone_files (

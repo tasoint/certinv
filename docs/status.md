@@ -48,7 +48,9 @@
 - `Purge all` でsuppressed host記録を一括purge可能
 - crt.name lookupはDNS解決やTLS probeを行わず、選択したapex内かつ未登録の候補ホスト名だけを表示する
 - Lookup nowはフォーム上のenabled/endpointを一時的に使い、Save crt.nameで保存した設定は次回scan用として別表示する
-- Run scan nowのInclude crt.nameは保存設定を変更せず、その1回の手動scanだけを上書きする
+- Run scan nowとscheduled scanは同じ保存済みdiscovery設定を使う
+- crt.name discoveryは全体のマスタースイッチとapexごとのON/OFFで制御し、apexごとの設定はデフォルトON
+- Inventoryタブに現在crt.name discovery対象として有効なapex一覧を表示する
 
 ## 検証コマンド
 

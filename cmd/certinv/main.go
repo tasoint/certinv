@@ -100,8 +100,8 @@ func runServe(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	scans := newSerialScanRunner(ctx, func(ctx context.Context, override *bool) error {
-		_, err := runner.RunWithOptions(ctx, core.RunOptions{CrtNameEnabled: override})
+	scans := newSerialScanRunner(ctx, func(ctx context.Context) error {
+		_, err := runner.Run(ctx)
 		return err
 	}, logger)
 	uiHandler, err := ui.New(db, ui.WithScanTrigger(scans), ui.WithConfigTargets(cfg.Apexes, cfg.ManualHosts), ui.WithSourceConfig(cfg.Discovery))
@@ -156,11 +156,11 @@ type serialScanRunner struct {
 	mu      sync.Mutex
 	running bool
 	ctx     context.Context
-	run     func(context.Context, *bool) error
+	run     func(context.Context) error
 	logger  *slog.Logger
 }
 
-func newSerialScanRunner(ctx context.Context, run func(context.Context, *bool) error, logger *slog.Logger) *serialScanRunner {
+func newSerialScanRunner(ctx context.Context, run func(context.Context) error, logger *slog.Logger) *serialScanRunner {
 	return &serialScanRunner{
 		ctx:    ctx,
 		run:    run,
@@ -176,16 +176,16 @@ func (r *serialScanRunner) Run(ctx context.Context) error {
 		return nil
 	}
 	defer r.finish()
-	return r.run(ctx, nil)
+	return r.run(ctx)
 }
 
-func (r *serialScanRunner) TriggerScan(includeCrtName bool) bool {
+func (r *serialScanRunner) TriggerScan() bool {
 	if !r.start() {
 		return false
 	}
 	go func() {
 		defer r.finish()
-		if err := r.run(r.ctx, &includeCrtName); err != nil && r.logger != nil {
+		if err := r.run(r.ctx); err != nil && r.logger != nil {
 			r.logger.ErrorContext(r.ctx, "manual scan failed", "error", err)
 		}
 	}()
