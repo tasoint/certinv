@@ -69,6 +69,7 @@ type Probe struct {
 	Concurrency      int           `yaml:"concurrency"`
 	ConnectTimeout   time.Duration `yaml:"connect_timeout"`
 	HandshakeTimeout time.Duration `yaml:"handshake_timeout"`
+	HTTPCheck        bool          `yaml:"http_check"`
 	RetireAfterDays  int           `yaml:"retire_after_days"`
 }
 

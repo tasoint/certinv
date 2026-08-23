@@ -247,6 +247,9 @@ func TestInventorySnapshot(t *testing.T) {
 	if err := store.SetCertificateState(ctx, hostID, certificate.Fingerprint, evaluate.StateHealthy, now); err != nil {
 		t.Fatalf("SetCertificateState() error = %v", err)
 	}
+	if err := store.SetHTTPStatus(ctx, hostID, certificate.Fingerprint, 502); err != nil {
+		t.Fatalf("SetHTTPStatus() error = %v", err)
+	}
 
 	snapshot, err := store.InventorySnapshot(ctx)
 	if err != nil {
@@ -256,7 +259,7 @@ func TestInventorySnapshot(t *testing.T) {
 		t.Fatalf("rows = %d, want 1", len(snapshot.Rows))
 	}
 	row := snapshot.Rows[0]
-	if row.Hostname != "www.example.com" || row.Fingerprint != "abc123" || row.CertState != evaluate.StateHealthy {
+	if row.Hostname != "www.example.com" || row.Fingerprint != "abc123" || row.CertState != evaluate.StateHealthy || row.HTTPStatus != 502 {
 		t.Fatalf("row = %#v", row)
 	}
 	if row.SANNames == "" || row.SANNames == "[]" {

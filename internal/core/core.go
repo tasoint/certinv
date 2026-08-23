@@ -77,7 +77,7 @@ func NewRunner(cfg *config.Config, st store.Store, out io.Writer, logger *slog.L
 	return Runner{
 		Config:    cfg,
 		Resolver:  resolve.NewNetResolver(nil),
-		Prober:    probe.NewTLSProber(cfg.Probe.ConnectTimeout, cfg.Probe.HandshakeTimeout),
+		Prober:    probe.NewTLSProber(cfg.Probe.ConnectTimeout, cfg.Probe.HandshakeTimeout, cfg.Probe.HTTPCheck),
 		Store:     st,
 		Notifiers: notifiers,
 		Now:       time.Now,
@@ -364,6 +364,9 @@ func (r Runner) processHost(ctx context.Context, host discover.Host) hostResult 
 		return hostResult{host: host, resolved: true, err: err}
 	}
 	if err := r.Store.LinkHostCertificate(ctx, hostID, probeResult.Certificate.Fingerprint, probeResult.Certificate.ChainComplete, probeResult.Certificate.HostnameMatch, now); err != nil {
+		return hostResult{host: host, resolved: true, err: err}
+	}
+	if err := r.Store.SetHTTPStatus(ctx, hostID, probeResult.Certificate.Fingerprint, probeResult.HTTPStatus); err != nil {
 		return hostResult{host: host, resolved: true, err: err}
 	}
 	if err := r.Store.MarkHostProbed(ctx, host.Hostname, host.Port, now); err != nil {

@@ -257,7 +257,7 @@ func runCheck(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	prober := probe.NewTLSProber(cfg.Probe.ConnectTimeout, cfg.Probe.HandshakeTimeout)
+	prober := probe.NewTLSProber(cfg.Probe.ConnectTimeout, cfg.Probe.HandshakeTimeout, cfg.Probe.HTTPCheck)
 	result, err := prober.Probe(ctx, probe.Target{Hostname: hostname, Port: *port})
 	if err != nil {
 		return err

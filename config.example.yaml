@@ -32,6 +32,8 @@ probe:
   concurrency: 5
   connect_timeout: 5s
   handshake_timeout: 5s
+  # HTTPS status check after the TLS probe
+  http_check: false
   # DNS解決に連続して失敗した場合に retired 扱いにするまでの日数
   retire_after_days: 30
 

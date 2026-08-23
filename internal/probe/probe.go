@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -20,6 +21,7 @@ type Result struct {
 	Target      Target
 	Certificate certmeta.Metadata
 	ProbedAt    time.Time
+	HTTPStatus  int
 }
 
 type Prober interface {
@@ -30,16 +32,18 @@ type TLSProber struct {
 	dialer           *net.Dialer
 	connectTimeout   time.Duration
 	handshakeTimeout time.Duration
+	httpCheck        bool
 	now              func() time.Time
 }
 
-func NewTLSProber(connectTimeout, handshakeTimeout time.Duration) *TLSProber {
+func NewTLSProber(connectTimeout, handshakeTimeout time.Duration, httpCheck ...bool) *TLSProber {
 	return &TLSProber{
 		dialer: &net.Dialer{
 			Timeout: connectTimeout,
 		},
 		connectTimeout:   connectTimeout,
 		handshakeTimeout: handshakeTimeout,
+		httpCheck:        len(httpCheck) > 0 && httpCheck[0],
 		now:              time.Now,
 	}
 }
@@ -81,9 +85,23 @@ func (p *TLSProber) Probe(ctx context.Context, target Target) (Result, error) {
 		return Result{}, fmt.Errorf("parse certificate metadata for %s: %w", address, err)
 	}
 
-	return Result{
+	result := Result{
 		Target:      target,
 		Certificate: metadata,
 		ProbedAt:    probedAt,
-	}, nil
+	}
+	if p.httpCheck {
+		client := &http.Client{
+			Timeout: 5 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true, ServerName: target.Hostname},
+			},
+		}
+		response, err := client.Get("https://" + address)
+		if err == nil {
+			result.HTTPStatus = response.StatusCode
+			_ = response.Body.Close()
+		}
+	}
+	return result, nil
 }
