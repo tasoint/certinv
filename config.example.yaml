@@ -20,6 +20,11 @@ discovery:
   sources: [crtname, manual]
   crtname:
     endpoint: https://crt.name/v1/search
+  # DNSゾーンファイルから A / AAAA / CNAME のホスト名を取り込む場合:
+  # sources: [crtname, manual, zone]
+  # zone:
+  #   files:
+  #     - ./example.com.zone
 
 probe:
   concurrency: 5

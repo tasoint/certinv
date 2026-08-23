@@ -30,6 +30,7 @@ const (
 	DefaultManualHostPort   = 443
 	DefaultDiscoveryCrtName = "crtname"
 	DefaultDiscoveryManual  = "manual"
+	DefaultDiscoveryZone    = "zone"
 )
 
 type Config struct {
@@ -52,10 +53,15 @@ type ManualHost struct {
 type Discovery struct {
 	Sources []string      `yaml:"sources"`
 	CrtName CrtNameSource `yaml:"crtname"`
+	Zone    ZoneSource    `yaml:"zone"`
 }
 
 type CrtNameSource struct {
 	Endpoint string `yaml:"endpoint"`
+}
+
+type ZoneSource struct {
+	Files []string `yaml:"files"`
 }
 
 type Probe struct {
@@ -184,13 +190,16 @@ func (c Config) Validate() error {
 
 	for _, source := range c.Discovery.Sources {
 		switch source {
-		case DefaultDiscoveryCrtName, DefaultDiscoveryManual:
+		case DefaultDiscoveryCrtName, DefaultDiscoveryManual, DefaultDiscoveryZone:
 		default:
 			return fmt.Errorf("unsupported discovery source %q", source)
 		}
 	}
 	if slices.Contains(c.Discovery.Sources, DefaultDiscoveryCrtName) && strings.TrimSpace(c.Discovery.CrtName.Endpoint) == "" {
 		return errors.New("discovery.crtname.endpoint is required")
+	}
+	if slices.Contains(c.Discovery.Sources, DefaultDiscoveryZone) && len(c.Discovery.Zone.Files) == 0 {
+		return errors.New("discovery.zone.files is required when zone source is enabled")
 	}
 
 	for _, host := range c.ManualHosts {

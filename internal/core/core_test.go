@@ -3,6 +3,8 @@ package core
 import (
 	"bytes"
 	"context"
+	"strings"
+	"testing"
 	"time"
 
 	certmeta "github.com/tasoint/certinv/internal/cert"
@@ -13,7 +15,6 @@ import (
 	"github.com/tasoint/certinv/internal/probe"
 	"github.com/tasoint/certinv/internal/resolve"
 	sqlitestore "github.com/tasoint/certinv/internal/store/sqlite"
-	"testing"
 )
 
 func TestRunnerRunsPipeline(t *testing.T) {
@@ -37,7 +38,7 @@ func TestRunnerRunsPipeline(t *testing.T) {
 		Resolver: fakeResolver{},
 		Prober: fakeProber{certificate: certmeta.Metadata{
 			Fingerprint:   "abc123",
-			IssuerCN:      "Test CA",
+			IssuerCN:      "YR1",
 			NotBefore:     now.Add(-24 * time.Hour),
 			NotAfter:      now.Add(47 * 24 * time.Hour),
 			LifetimeDays:  48,
@@ -59,8 +60,11 @@ func TestRunnerRunsPipeline(t *testing.T) {
 	if summary.Events != 1 {
 		t.Fatalf("summary.Events = %d, want 1", summary.Events)
 	}
-	if got := out.String(); got == "" {
-		t.Fatal("output is empty")
+	if summary.LikelyAuto != 1 {
+		t.Fatalf("summary.LikelyAuto = %d, want 1", summary.LikelyAuto)
+	}
+	if got := out.String(); !strings.Contains(got, "automation=likely_auto") {
+		t.Fatalf("output = %q, want automation=likely_auto", got)
 	}
 }
 

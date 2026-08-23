@@ -78,6 +78,26 @@ discovery:
 	}
 }
 
+func TestLoadAcceptsZoneSource(t *testing.T) {
+	path := writeConfig(t, `
+apexes:
+  - example.com
+discovery:
+  sources: [zone]
+  zone:
+    files:
+      - ./example.zone
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.Discovery.Zone.Files[0]; got != "./example.zone" {
+		t.Fatalf("zone file = %q, want ./example.zone", got)
+	}
+}
+
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
 

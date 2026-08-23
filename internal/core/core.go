@@ -14,9 +14,11 @@ import (
 	"github.com/tasoint/certinv/internal/discover"
 	"github.com/tasoint/certinv/internal/discover/crtname"
 	"github.com/tasoint/certinv/internal/discover/manual"
+	"github.com/tasoint/certinv/internal/discover/zonefile"
 	"github.com/tasoint/certinv/internal/evaluate"
 	"github.com/tasoint/certinv/internal/notify"
 	"github.com/tasoint/certinv/internal/probe"
+	"github.com/tasoint/certinv/internal/report"
 	"github.com/tasoint/certinv/internal/resolve"
 	"github.com/tasoint/certinv/internal/store"
 	sqlitestore "github.com/tasoint/certinv/internal/store/sqlite"
@@ -30,6 +32,9 @@ type Summary struct {
 	Notified     int
 	NotifyFailed int
 	Failed       int
+	LikelyAuto   int
+	LikelyManual int
+	UnknownAuto  int
 }
 
 type Runner struct {
@@ -70,6 +75,9 @@ func NewRunner(cfg *config.Config, st store.Store, out io.Writer, logger *slog.L
 	}
 	if slices.Contains(cfg.Discovery.Sources, discover.SourceManual) {
 		sources = append(sources, manual.New(cfg.ManualHosts))
+	}
+	if slices.Contains(cfg.Discovery.Sources, discover.SourceZone) {
+		sources = append(sources, zonefile.New(cfg.Discovery.Zone.Files))
 	}
 	notifiers, err := notify.FromConfig(cfg.Notifiers)
 	if err != nil {
@@ -184,6 +192,15 @@ func (r Runner) Run(ctx context.Context) (summary Summary, err error) {
 		if result.notifyFailed {
 			summary.NotifyFailed++
 		}
+		if result.likelyAuto {
+			summary.LikelyAuto++
+		}
+		if result.likelyManual {
+			summary.LikelyManual++
+		}
+		if result.unknownAuto {
+			summary.UnknownAuto++
+		}
 		if result.err != nil {
 			summary.Failed++
 			if r.Logger != nil {
@@ -258,6 +275,15 @@ func (r Runner) processHost(ctx context.Context, host discover.Host) hostResult 
 	}
 
 	result := hostResult{host: host, resolved: true, probed: true}
+	automation := report.EstimateAutomation(probeResult.Certificate)
+	switch automation.Class {
+	case report.AutomationLikelyAuto:
+		result.likelyAuto = true
+	case report.AutomationLikelyManual:
+		result.likelyManual = true
+	default:
+		result.unknownAuto = true
+	}
 	event := evaluation.Event
 	if previousCertificate.Fingerprint != "" &&
 		previousCertificate.Fingerprint != probeResult.Certificate.Fingerprint &&
@@ -280,11 +306,12 @@ func (r Runner) processHost(ctx context.Context, host discover.Host) hostResult 
 		result.notifyFailed = notifyFailed
 	}
 
-	fmt.Fprintf(r.Out, "%s:%d %s state=%s not_after=%s issuer=%q host_match=%t chain_complete=%t\n",
+	fmt.Fprintf(r.Out, "%s:%d %s state=%s automation=%s not_after=%s issuer=%q host_match=%t chain_complete=%t\n",
 		host.Hostname,
 		host.Port,
 		probeResult.Certificate.Fingerprint,
 		evaluation.State,
+		automation.Class,
 		probeResult.Certificate.NotAfter.Format(time.RFC3339),
 		probeResult.Certificate.IssuerCN,
 		probeResult.Certificate.HostnameMatch,
@@ -336,7 +363,7 @@ func (r Runner) retryPendingEvents(ctx context.Context, now time.Time) (int, int
 }
 
 func printSummary(out io.Writer, summary Summary) {
-	fmt.Fprintf(out, "summary discovered=%d resolved=%d probed=%d events=%d notified=%d notify_failed=%d failed=%d\n",
+	fmt.Fprintf(out, "summary discovered=%d resolved=%d probed=%d events=%d notified=%d notify_failed=%d failed=%d automation_likely_auto=%d automation_likely_manual=%d automation_unknown=%d\n",
 		summary.Discovered,
 		summary.Resolved,
 		summary.Probed,
@@ -344,6 +371,9 @@ func printSummary(out io.Writer, summary Summary) {
 		summary.Notified,
 		summary.NotifyFailed,
 		summary.Failed,
+		summary.LikelyAuto,
+		summary.LikelyManual,
+		summary.UnknownAuto,
 	)
 }
 
@@ -354,5 +384,8 @@ type hostResult struct {
 	evented      bool
 	notified     bool
 	notifyFailed bool
+	likelyAuto   bool
+	likelyManual bool
+	unknownAuto  bool
 	err          error
 }
