@@ -115,7 +115,7 @@ certinv serve --config config.yaml
 
 ### Inventory タブ
 
-- UIはOS/ブラウザのダークモード設定に自動追従します。
+- UIはOS/ブラウザのダークモード設定に自動追従します。ヘッダーの `Light / Dark` ボタンで手動切り替えもできます。
 - 手動scanを実行し、イベント／アラートを確認済みにできます。手動scanとscheduled scanはいずれも保存済みのdiscovery設定を使い、実行ごとの一時上書きは行いません。
 - `Run scan now` は設定済みapexを対象に即時実行します。実行中は新しい実行を拒否し、Scanning表示とボタン無効化を行います。60秒経過時は手動リロードを案内します。
 - 現在crt.name discovery対象として有効なapex一覧を表示します。
