@@ -5,7 +5,7 @@
 Certificate Transparency 由来のサブドメイン一覧から到達可能なホストを絞り込み、
 証明書を収集して有効期限を追跡し、期限切れ前に通知します。
 
-> **開発中です。** 現在 v0.1 に向けて実装中で、まだ動作しません。
+> **開発中です。** 現在は `scan` / `serve` / `check` コマンドを実装しています。
 > 設計は [docs/design.md](docs/design.md) を参照してください。
 
 ## 背景
@@ -26,6 +26,37 @@ certinv は **自分が所有・管理するドメイン** の棚卸しに使う
 - プローブの並列度とレートは保守的なデフォルト値になっています
 
 第三者のドメインに対する調査目的での利用は想定していません。
+
+## 使い方
+
+設定例をコピーして、所有・管理している apex ドメインだけを登録します。
+
+```sh
+cp config.example.yaml config.yaml
+```
+
+棚卸しスキャンを1回実行します。
+
+```sh
+certinv scan --config config.yaml
+```
+
+定期スキャンと Prometheus exporter を起動します。
+
+```sh
+certinv serve --config config.yaml
+```
+
+単発でFQDNのTLS証明書を確認します。指定できるFQDNは `config.yaml` の
+`apexes` 配下だけです。apex外の任意ドメインは拒否されます。
+
+```sh
+certinv check --config config.yaml www.example.com
+certinv check --config config.yaml --port 8443 app.example.com
+```
+
+`check` は読み取り専用で、証明書メタデータを標準出力に表示します。
+DBへの永続化や設定変更は行いません。
 
 ## やらないこと
 
