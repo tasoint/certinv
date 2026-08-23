@@ -8,6 +8,7 @@ Certificate Transparency 由来のサブドメイン一覧から到達可能な�
 > **開発中です。** 現在は `scan` / `serve` / `check` コマンドを実装しています。
 > `serve` では Prometheus exporter とインベントリ確認・限定的な運用操作を行う Web UI を提供します。
 > 詳細は [docs/status.md](docs/status.md) と [docs/design.md](docs/design.md) を参照してください。
+> 開発者向けの検証手順は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) を参照してください。
 
 ## 背景
 
@@ -76,14 +77,6 @@ Go 1.25 以降が必要です。
 
 ### コマンド別の使い方
 
-開発時の確認には、次のコマンドを使います。
-
-```sh
-go test ./...
-go vet ./...
-gofmt -l .
-```
-
 単発 `scan`:
 
 ```sh
@@ -98,40 +91,30 @@ go run ./cmd/certinv serve --config config.yaml
 
 `serve` では Prometheus metrics を `/metrics` で提供します。`/ui` は
 `Inventory` と `Sources & Targets` のタブに分かれており、`/` は `/ui` にリダイレクトします。
-UIから手動scanの実行、イベント／アラートの確認済み化、apex／manual hostの登録内容管理を行えます。
-インベントリ行の `Suppress` でホストを一覧と次回以降のscan対象から除外でき、
-`Suppressed hosts` セクションの `Unsuppress` で復元できます。`Purge` はsuppressed hostの
-host記録と証明書紐付けを完全削除しますが、証明書メタデータ本体は削除しません。
-`All clear` は現在表示されている全ホストをまとめてsuppressし、`Purge all` は
-suppressed hostの記録をまとめて完全削除します。
-未確認の warn / alert イベントは `/ui` から確認済みにできます。証明書の発行・更新や
-秘密鍵の操作は行いません。
-`/ui/export.csv` では、UIのインベントリ一覧と同等の証明書メタデータをCSVで
-ダウンロードできます。Inventoryテーブルはホスト名検索と証明書状態で絞り込めます。
-`/ui` の `Run scan now` ボタンから、設定済みapexを対象にしたscanを即時実行できます。
-手動scanとscheduled scanはいずれも保存済みのdiscovery設定を使い、実行ごとの一時上書きは
-行いません。Inventoryタブには、現在crt.name discovery対象として有効なapex一覧を表示します。
-既にscan実行中の場合は新しい実行は拒否されます。手動scan受付後は `/ui/scan/status` を
-短時間ポーリングし、完了後にUIを再読み込みします。
-ポーリング中はScanning表示とボタン無効化を行い、60秒経過時は手動リロードを案内します。
-UIではapex/manual hostをDB管理のオーバーレイとして追加・削除できます。DB管理の
-manual hostはhostnameを固定したままportを編集できます。`config.yaml` の
-`apexes` / `manual_hosts` は引き続き真のbaseとして扱われ、UIから変更・削除されません。
-apexはcrt.name discovery有効時にCTログ上のサブドメインを自動発見するスコープであり、
-manual hostはCTログに現れないホストを追加するためのものです。manual hostはapex discoveryの
-絞り込み条件ではありません。
-crt.nameの有効/無効とendpoint、apexごとのcrt.name有効/無効、zone fileの追加もDB管理の
-オーバーレイとして保存されます。crt.nameの全体設定はマスタースイッチで、OFFの場合はapexごとの
-設定に関わらずcrt.name discovery全体が無効です。apexごとの設定はデフォルトONです。
-`Sources & Targets` タブでは、設定済みのcrt.name endpointに対して現在のapex一覧
-（config + DB管理apex）から選んだ1つのapexでlookupを実行し、取得したサブドメイン候補を選択して
-managed manual host（port 443）としてTargetsへ追加できます。このlookupは候補取得のみで、
-DNS解決やTLS probeは行いません。Lookup nowは画面上のenabled/endpoint入力値をその場で使い、
-保存は行いません。Save crt.nameで保存した全体設定は次回以降のscheduled scanやRun scan nowに使われ、
-UI上にも現在の保存設定として表示されます。既にmanual hostとして登録済みのhostnameは候補から除外され、
-候補一覧はホスト名で絞り込み、全選択／全解除できます。
-zone fileのUI追加を使う場合は、`discovery.zone.allowed_dir` に許可ディレクトリを設定し、
-UIからはその配下に実在するファイルだけを選択します。
+
+### Inventory タブ
+
+- 手動scanを実行し、イベント／アラートを確認済みにできます。手動scanとscheduled scanはいずれも保存済みのdiscovery設定を使い、実行ごとの一時上書きは行いません。
+- `Run scan now` は設定済みapexを対象に即時実行します。実行中は新しい実行を拒否し、Scanning表示とボタン無効化を行います。60秒経過時は手動リロードを案内します。
+- 現在crt.name discovery対象として有効なapex一覧を表示します。
+- インベントリ行の `Suppress` でホストを一覧と次回以降のscan対象から除外し、`Suppressed hosts` の `Unsuppress` で復元できます。
+- `All clear` は表示中の全ホストをまとめてsuppressします。
+- `Purge` / `Purge all` はsuppressed hostのhost記録と証明書紐付けを完全削除しますが、証明書メタデータ本体は削除しません。
+- `/ui/export.csv` でインベントリ一覧と同等の証明書メタデータをCSVダウンロードできます。Inventoryテーブルはホスト名検索と証明書状態で絞り込めます。
+- 証明書の発行・更新や秘密鍵の操作は行いません。
+
+### Sources & Targets タブ
+
+- apex/manual hostをDB管理のオーバーレイとして追加・削除できます。DB管理のmanual hostはhostnameを固定したままportを編集できます。
+- `config.yaml` の `apexes` / `manual_hosts` は真のbaseとして扱われ、UIから変更・削除されません。
+- apexはcrt.name discovery有効時にCTログ上のサブドメインを自動発見するスコープで、manual hostはCTログに現れないホストを追加するためのものです。manual hostはapex discoveryの絞り込み条件ではありません。
+- crt.nameの有効/無効とendpoint、apexごとのcrt.name有効/無効、zone fileの追加をDB管理のオーバーレイとして保存できます。crt.nameの全体設定はマスタースイッチで、OFFの場合はapexごとの設定に関わらず全体が無効です。apexごとの設定はデフォルトONです。
+- 設定済みのcrt.name endpointに対し、現在のapex一覧（config + DB管理apex）から選んだ1つのapexでlookupを実行できます。候補を選択してmanaged manual host（port 443）としてTargetsへ追加できます。
+- lookupは候補取得のみで、DNS解決やTLS probeは行いません。Lookup nowは画面上のenabled/endpoint入力値をその場で使い、保存は行いません。Save crt.nameで保存した全体設定は次回以降のscheduled scanやRun scan nowに使われ、UI上にも表示されます。
+- 既にmanual hostとして登録済みのhostnameは候補から除外され、候補一覧はホスト名で絞り込み、全選択／全解除できます。
+- zone fileのUI追加では、`discovery.zone.allowed_dir` 配下に実在するファイルだけを選択します。
+
+### 認証
 
 `exporter.basic_auth.username` と `exporter.basic_auth.password` の両方を設定すると、
 `/metrics` と `/ui` はBasic認証で保護されます。両方空の場合は認証なしで動作し、
@@ -166,4 +149,4 @@ DBへの永続化や設定変更は行いません。
 
 ## ライセンス
 
-TODO: ライセンスを選択してください（Apache-2.0 または MIT を推奨）
+MIT License ([LICENSE](LICENSE))
