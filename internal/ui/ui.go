@@ -9,6 +9,8 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +28,7 @@ type Handler struct {
 	now      func() time.Time
 	scanner  ScanTrigger
 	config   ConfigTargets
+	sources  SourceConfig
 }
 
 type ScanTrigger interface {
@@ -39,6 +42,13 @@ type ConfigTargets struct {
 	ManualHosts []config.ManualHost
 }
 
+type SourceConfig struct {
+	CrtNameEnabled  bool
+	CrtNameEndpoint string
+	ZoneAllowedDir  string
+	ZoneFiles       []string
+}
+
 func WithScanTrigger(scanner ScanTrigger) Option {
 	return func(h *Handler) {
 		h.scanner = scanner
@@ -50,6 +60,17 @@ func WithConfigTargets(apexes []string, manualHosts []config.ManualHost) Option 
 		h.config = ConfigTargets{
 			Apexes:      append([]string{}, apexes...),
 			ManualHosts: append([]config.ManualHost{}, manualHosts...),
+		}
+	}
+}
+
+func WithSourceConfig(discovery config.Discovery) Option {
+	return func(h *Handler) {
+		h.sources = SourceConfig{
+			CrtNameEnabled:  contains(discovery.Sources, discover.SourceCrtName),
+			CrtNameEndpoint: discovery.CrtName.Endpoint,
+			ZoneAllowedDir:  discovery.Zone.AllowedDir,
+			ZoneFiles:       append([]string{}, discovery.Zone.Files...),
 		}
 	}
 }
@@ -86,6 +107,9 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/ui/manual-hosts/delete", h.serveDeleteManualHost)
 	mux.HandleFunc("/ui/hosts/suppress", h.serveSuppressHost)
 	mux.HandleFunc("/ui/hosts/unsuppress", h.serveUnsuppressHost)
+	mux.HandleFunc("/ui/crtname", h.serveSaveCrtName)
+	mux.HandleFunc("/ui/zone-files", h.serveAddZoneFile)
+	mux.HandleFunc("/ui/zone-files/delete", h.serveDeleteZoneFile)
 }
 
 func (h *Handler) redirectRoot(w http.ResponseWriter, r *http.Request) {
@@ -119,14 +143,20 @@ func (h *Handler) serveInventory(w http.ResponseWriter, r *http.Request) {
 	}
 	data := pageData{
 		GeneratedAt: h.now().UTC().Format(time.RFC3339),
+		Tab:         activeTab(r),
 		Rows:        snapshot.Rows,
 		Events:      events,
 		Suppressed:  suppressed,
 		Notice:      r.URL.Query().Get("notice"),
 		Error:       r.URL.Query().Get("error"),
 	}
+	data.InventoryTab = data.Tab == "inventory"
+	data.SourcesTab = data.Tab == "sources"
 	if targets, err := h.targetRows(r.Context()); err == nil {
 		data.Targets = targets
+	}
+	if sources, err := h.sourceRows(r.Context()); err == nil {
+		data.Sources = sources
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.template.Execute(w, data); err != nil {
@@ -241,6 +271,73 @@ func (h *Handler) serveDeleteManualHost(w http.ResponseWriter, r *http.Request) 
 	redirectUINotice(w, r, "manual host deleted")
 }
 
+func (h *Handler) serveSaveCrtName(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirectUITabError(w, r, "sources", "invalid form")
+		return
+	}
+	enabled := r.FormValue("enabled") == "on"
+	endpoint := strings.TrimSpace(r.FormValue("endpoint"))
+	if enabled && endpoint == "" {
+		redirectUITabError(w, r, "sources", "crtname endpoint is required")
+		return
+	}
+	if err := h.store.SaveManagedCrtName(r.Context(), enabled, endpoint, h.now()); err != nil {
+		redirectUITabError(w, r, "sources", "failed to save crtname settings")
+		return
+	}
+	redirectUITabNotice(w, r, "sources", "crtname settings saved")
+}
+
+func (h *Handler) serveAddZoneFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirectUITabError(w, r, "sources", "invalid form")
+		return
+	}
+	path, err := h.resolveAllowedZoneFile(r.FormValue("file"))
+	if err != nil {
+		redirectUITabError(w, r, "sources", err.Error())
+		return
+	}
+	if err := h.store.AddManagedZoneFile(r.Context(), path, h.now()); err != nil {
+		redirectUITabError(w, r, "sources", "failed to add zone file")
+		return
+	}
+	redirectUITabNotice(w, r, "sources", "zone file added")
+}
+
+func (h *Handler) serveDeleteZoneFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirectUITabError(w, r, "sources", "invalid form")
+		return
+	}
+	path := strings.TrimSpace(r.FormValue("path"))
+	if path == "" {
+		redirectUITabError(w, r, "sources", "zone file path is required")
+		return
+	}
+	if err := h.store.DeleteManagedZoneFile(r.Context(), path); err != nil {
+		redirectUITabError(w, r, "sources", "failed to delete zone file")
+		return
+	}
+	redirectUITabNotice(w, r, "sources", "zone file deleted")
+}
+
 func (h *Handler) serveExportCSV(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", http.MethodGet+", "+http.MethodHead)
@@ -351,13 +448,17 @@ func (h *Handler) acknowledgeEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 type pageData struct {
-	GeneratedAt string
-	Rows        []store.InventoryRow
-	Targets     targetRows
-	Events      []store.StoredEvent
-	Suppressed  []store.SuppressedHost
-	Notice      string
-	Error       string
+	GeneratedAt  string
+	Tab          string
+	InventoryTab bool
+	SourcesTab   bool
+	Rows         []store.InventoryRow
+	Targets      targetRows
+	Events       []store.StoredEvent
+	Suppressed   []store.SuppressedHost
+	Sources      sourceRows
+	Notice       string
+	Error        string
 }
 
 type targetRows struct {
@@ -377,6 +478,25 @@ type targetManualHost struct {
 	Apex      string
 	Origin    string
 	CanDelete bool
+}
+
+type sourceRows struct {
+	CrtName crtNameRow
+	Zone    zoneRows
+}
+
+type crtNameRow struct {
+	Enabled  bool
+	Endpoint string
+	Origin   string
+}
+
+type zoneRows struct {
+	AllowedDir     string
+	Enabled        bool
+	ConfigFiles    []string
+	ManagedFiles   []store.ManagedZoneFile
+	AvailableFiles []string
 }
 
 func shortFingerprint(fingerprint string) string {
@@ -406,17 +526,37 @@ func fallback(value, fallback string) string {
 }
 
 func redirectUINotice(w http.ResponseWriter, r *http.Request, message string) {
-	redirectUIMessage(w, r, "notice", message)
+	redirectUITabNotice(w, r, activeTab(r), message)
 }
 
 func redirectUIError(w http.ResponseWriter, r *http.Request, message string) {
-	redirectUIMessage(w, r, "error", message)
+	redirectUITabError(w, r, activeTab(r), message)
 }
 
-func redirectUIMessage(w http.ResponseWriter, r *http.Request, key, message string) {
+func redirectUITabNotice(w http.ResponseWriter, r *http.Request, tab, message string) {
+	redirectUIMessage(w, r, tab, "notice", message)
+}
+
+func redirectUITabError(w http.ResponseWriter, r *http.Request, tab, message string) {
+	redirectUIMessage(w, r, tab, "error", message)
+}
+
+func redirectUIMessage(w http.ResponseWriter, r *http.Request, tab, key, message string) {
 	values := url.Values{}
+	if tab != "" && tab != "inventory" {
+		values.Set("tab", tab)
+	}
 	values.Set(key, message)
 	http.Redirect(w, r, "/ui?"+values.Encode(), http.StatusSeeOther)
+}
+
+func activeTab(r *http.Request) string {
+	switch r.URL.Query().Get("tab") {
+	case "sources":
+		return "sources"
+	default:
+		return "inventory"
+	}
 }
 
 func (h *Handler) targetRows(ctx context.Context) (targetRows, error) {
@@ -453,6 +593,34 @@ func (h *Handler) targetRows(ctx context.Context) (targetRows, error) {
 	return rows, nil
 }
 
+func (h *Handler) sourceRows(ctx context.Context) (sourceRows, error) {
+	managed, err := h.store.ManagedDiscovery(ctx)
+	if err != nil {
+		return sourceRows{}, err
+	}
+	crt := crtNameRow{
+		Enabled:  h.sources.CrtNameEnabled,
+		Endpoint: h.sources.CrtNameEndpoint,
+		Origin:   "config",
+	}
+	if managed.CrtNameSet {
+		crt.Enabled = managed.CrtNameEnabled
+		crt.Endpoint = managed.CrtNameEndpoint
+		crt.Origin = "db"
+	}
+	available, _ := h.availableZoneFiles()
+	return sourceRows{
+		CrtName: crt,
+		Zone: zoneRows{
+			AllowedDir:     h.sources.ZoneAllowedDir,
+			Enabled:        strings.TrimSpace(h.sources.ZoneAllowedDir) != "",
+			ConfigFiles:    append([]string{}, h.sources.ZoneFiles...),
+			ManagedFiles:   managed.ZoneFiles,
+			AvailableFiles: available,
+		},
+	}, nil
+}
+
 func validateApex(value string) (string, error) {
 	apex := discover.NormalizeHostname(value)
 	if apex == "" {
@@ -463,6 +631,64 @@ func validateApex(value string) (string, error) {
 		return "", fmt.Errorf("apex must be a registrable eTLD+1 domain")
 	}
 	return apex, nil
+}
+
+func (h *Handler) availableZoneFiles() ([]string, error) {
+	dir := strings.TrimSpace(h.sources.ZoneAllowedDir)
+	if dir == "" {
+		return nil, nil
+	}
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return nil, err
+	}
+	var files []string
+	err = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, filepath.ToSlash(rel))
+		return nil
+	})
+	return files, err
+}
+
+func (h *Handler) resolveAllowedZoneFile(name string) (string, error) {
+	dir := strings.TrimSpace(h.sources.ZoneAllowedDir)
+	if dir == "" {
+		return "", fmt.Errorf("zone allowed_dir is not configured")
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", fmt.Errorf("zone file is required")
+	}
+	if filepath.IsAbs(name) {
+		return "", fmt.Errorf("zone file must be under allowed_dir")
+	}
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return "", fmt.Errorf("invalid zone allowed_dir")
+	}
+	path, err := filepath.Abs(filepath.Join(root, filepath.Clean(name)))
+	if err != nil {
+		return "", fmt.Errorf("invalid zone file")
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || rel == ".." {
+		return "", fmt.Errorf("zone file must be under allowed_dir")
+	}
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return "", fmt.Errorf("zone file must exist under allowed_dir")
+	}
+	return path, nil
 }
 
 func (h *Handler) validateManualHost(ctx context.Context, hostnameValue, portValue string) (discover.Host, error) {
@@ -505,6 +731,15 @@ func normalizedPort(port int) int {
 		return discover.DefaultPort
 	}
 	return port
+}
+
+func contains(values []string, value string) bool {
+	for _, item := range values {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
 
 var csvHeader = []string{
@@ -599,6 +834,24 @@ const pageTemplate = `<!doctype html>
     .actions {
       margin-top: 10px;
     }
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .tab {
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: var(--text);
+      text-decoration: none;
+      background: #eef2f6;
+      font-weight: 650;
+    }
+    .tab-active {
+      background: var(--panel);
+      border-bottom-color: var(--panel);
+    }
     .button {
       display: inline-block;
       padding: 6px 10px;
@@ -628,6 +881,14 @@ const pageTemplate = `<!doctype html>
       margin-bottom: 10px;
     }
     input {
+      padding: 6px 8px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+    }
+    select {
       padding: 6px 8px;
       border: 1px solid var(--line);
       border-radius: 4px;
@@ -706,22 +967,23 @@ const pageTemplate = `<!doctype html>
   <header>
     <h1>certinv inventory</h1>
     <div class="meta">Generated at {{.GeneratedAt}}. Certificates and keys are not modified from this UI.</div>
-    <div class="actions">
-      <form method="post" action="/ui/scan" style="display:inline"><button class="button" type="submit">Run scan now</button></form>
-      <a class="button" href="/ui/export.csv">Download CSV</a>
-    </div>
+    <nav class="tabs">
+      <a class="tab {{if .InventoryTab}}tab-active{{end}}" href="/ui?tab=inventory">Inventory</a>
+      <a class="tab {{if .SourcesTab}}tab-active{{end}}" href="/ui?tab=sources">Sources &amp; Targets</a>
+    </nav>
   </header>
   <main>
     {{if .Notice}}<div class="flash flash-notice">{{.Notice}}</div>{{end}}
     {{if .Error}}<div class="flash flash-error">{{.Error}}</div>{{end}}
+    {{if .SourcesTab}}
     <section>
       <h2>Targets</h2>
       <div class="forms">
-        <form method="post" action="/ui/apexes">
+        <form method="post" action="/ui/apexes?tab=sources">
           <input name="apex" placeholder="example.com" required>
           <button class="button" type="submit">Add apex</button>
         </form>
-        <form method="post" action="/ui/manual-hosts">
+        <form method="post" action="/ui/manual-hosts?tab=sources">
           <input name="hostname" placeholder="host.example.com" required>
           <input name="port" placeholder="443">
           <button class="button" type="submit">Add manual host</button>
@@ -734,18 +996,60 @@ const pageTemplate = `<!doctype html>
             {{range .Targets.Apexes}}
             <tr>
               <td>apex</td><td>{{.Apex}}</td><td>{{.Apex}}</td><td>{{.Origin}}</td>
-              <td>{{if .CanDelete}}<form method="post" action="/ui/apexes/delete"><input type="hidden" name="apex" value="{{.Apex}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
+              <td>{{if .CanDelete}}<form method="post" action="/ui/apexes/delete?tab=sources"><input type="hidden" name="apex" value="{{.Apex}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
             </tr>
             {{end}}
             {{range .Targets.ManualHosts}}
             <tr>
               <td>manual</td><td>{{.Hostname}}:{{.Port}}</td><td>{{.Apex}}</td><td>{{.Origin}}</td>
-              <td>{{if .CanDelete}}<form method="post" action="/ui/manual-hosts/delete"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
+              <td>{{if .CanDelete}}<form method="post" action="/ui/manual-hosts/delete?tab=sources"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
             </tr>
             {{end}}
           </tbody>
         </table>
       </div>
+    </section>
+    <section>
+      <h2>crt.name discovery</h2>
+      <form method="post" action="/ui/crtname?tab=sources" class="forms">
+        <label><input type="checkbox" name="enabled" {{if .Sources.CrtName.Enabled}}checked{{end}}> Enabled</label>
+        <input name="endpoint" value="{{.Sources.CrtName.Endpoint}}" placeholder="https://crt.name/v1/search">
+        <button class="button" type="submit">Save crt.name</button>
+        <span class="muted">origin={{.Sources.CrtName.Origin}}</span>
+      </form>
+    </section>
+    <section>
+      <h2>Zone files</h2>
+      {{if .Sources.Zone.Enabled}}
+      <div class="forms">
+        <form method="post" action="/ui/zone-files?tab=sources">
+          <select name="file">
+            {{range .Sources.Zone.AvailableFiles}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+          <button class="button" type="submit">Add zone file</button>
+        </form>
+      </div>
+      {{else}}
+      <div class="empty">discovery.zone.allowed_dir is not configured.</div>
+      {{end}}
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Origin</th><th>Path</th><th>Action</th></tr></thead>
+          <tbody>
+            {{range .Sources.Zone.ConfigFiles}}<tr><td>config</td><td>{{.}}</td><td><span class="muted">config</span></td></tr>{{end}}
+            {{range .Sources.Zone.ManagedFiles}}
+            <tr><td>db</td><td>{{.Path}}</td><td><form method="post" action="/ui/zone-files/delete?tab=sources"><input type="hidden" name="path" value="{{.Path}}"><button class="button" type="submit">Delete</button></form></td></tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {{else}}
+    <section>
+    <div class="actions">
+      <form method="post" action="/ui/scan" style="display:inline"><button class="button" type="submit">Run scan now</button></form>
+      <a class="button" href="/ui/export.csv">Download CSV</a>
+    </div>
     </section>
     <section>
     <h2>Unacknowledged alerts</h2>
@@ -829,6 +1133,7 @@ const pageTemplate = `<!doctype html>
         {{end}}
       </section>
     </section>
+    {{end}}
   </main>
 </body>
 </html>`

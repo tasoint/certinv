@@ -104,7 +104,7 @@ func runServe(args []string) error {
 		_, err := runner.Run(ctx)
 		return err
 	}, logger)
-	uiHandler, err := ui.New(db, ui.WithScanTrigger(scans), ui.WithConfigTargets(cfg.Apexes, cfg.ManualHosts))
+	uiHandler, err := ui.New(db, ui.WithScanTrigger(scans), ui.WithConfigTargets(cfg.Apexes, cfg.ManualHosts), ui.WithSourceConfig(cfg.Discovery))
 	if err != nil {
 		return err
 	}

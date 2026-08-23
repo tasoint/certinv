@@ -218,6 +218,41 @@ func TestRunnerIncludesManagedManualHosts(t *testing.T) {
 	}
 }
 
+func TestRunnerAppliesManagedDiscoverySettings(t *testing.T) {
+	ctx := context.Background()
+	db, err := sqlitestore.Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer db.Close()
+
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	if err := db.SaveManagedCrtName(ctx, false, "https://crt.example/search", now); err != nil {
+		t.Fatalf("SaveManagedCrtName() error = %v", err)
+	}
+	if err := db.AddManagedZoneFile(ctx, "/tmp/example.zone", now); err != nil {
+		t.Fatalf("AddManagedZoneFile() error = %v", err)
+	}
+	runner := Runner{
+		Config: &config.Config{
+			Discovery: config.Discovery{
+				Sources: []string{discover.SourceCrtName},
+				CrtName: config.CrtNameSource{
+					Endpoint: "https://crt.name/v1/search",
+				},
+			},
+		},
+		Store: db,
+	}
+	sources, err := runner.effectiveSources(ctx)
+	if err != nil {
+		t.Fatalf("effectiveSources() error = %v", err)
+	}
+	if len(sources) != 1 || sources[0].Name() != discover.SourceZone {
+		t.Fatalf("sources = %#v, want managed zone only", sources)
+	}
+}
+
 type fakeSource struct {
 	hosts []discover.Host
 }

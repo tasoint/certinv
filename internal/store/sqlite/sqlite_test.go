@@ -344,3 +344,40 @@ func TestStoreSuppressesHostFromInventory(t *testing.T) {
 		t.Fatalf("InventorySnapshot() after unsuppress = %#v, %v", snapshot, err)
 	}
 }
+
+func TestManagedDiscovery(t *testing.T) {
+	ctx := context.Background()
+	store, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	if err := store.SaveManagedCrtName(ctx, false, "https://crt.example/search", now); err != nil {
+		t.Fatalf("SaveManagedCrtName() error = %v", err)
+	}
+	if err := store.AddManagedZoneFile(ctx, "/tmp/example.zone", now); err != nil {
+		t.Fatalf("AddManagedZoneFile() error = %v", err)
+	}
+	discovery, err := store.ManagedDiscovery(ctx)
+	if err != nil {
+		t.Fatalf("ManagedDiscovery() error = %v", err)
+	}
+	if !discovery.CrtNameSet || discovery.CrtNameEnabled || discovery.CrtNameEndpoint != "https://crt.example/search" {
+		t.Fatalf("crtname discovery = %#v", discovery)
+	}
+	if len(discovery.ZoneFiles) != 1 || discovery.ZoneFiles[0].Path != "/tmp/example.zone" {
+		t.Fatalf("zone files = %#v", discovery.ZoneFiles)
+	}
+	if err := store.DeleteManagedZoneFile(ctx, "/tmp/example.zone"); err != nil {
+		t.Fatalf("DeleteManagedZoneFile() error = %v", err)
+	}
+	discovery, err = store.ManagedDiscovery(ctx)
+	if err != nil {
+		t.Fatalf("ManagedDiscovery() after delete error = %v", err)
+	}
+	if len(discovery.ZoneFiles) != 0 {
+		t.Fatalf("zone files after delete = %#v", discovery.ZoneFiles)
+	}
+}

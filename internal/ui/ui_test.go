@@ -5,11 +5,13 @@ import (
 	"encoding/csv"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/tasoint/certinv/internal/config"
 	"github.com/tasoint/certinv/internal/discover"
 	"github.com/tasoint/certinv/internal/evaluate"
 	"github.com/tasoint/certinv/internal/store"
@@ -54,13 +56,47 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "expiring", "/ui/events/7/ack", "/ui/scan", "managed.example.net", "db.example.com:8443", "saved", "problem"} {
+	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "expiring", "/ui/events/7/ack", "/ui/scan", "saved", "problem"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
 	}
 	if strings.Contains(body, "PRIVATE KEY") {
 		t.Fatal("body contains forbidden key material marker")
+	}
+}
+
+func TestHandlerRendersTabs(t *testing.T) {
+	handler, err := New(&fakeStore{}, WithConfigTargets([]string{"example.com"}, nil), WithSourceConfig(config.Discovery{
+		Sources: []string{discover.SourceCrtName},
+		CrtName: config.CrtNameSource{Endpoint: "https://crt.name/v1/search"},
+	}))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/ui?tab=sources", nil)
+	rec := httptest.NewRecorder()
+	handler.serveInventory(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("sources status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"crt.name discovery", "Zone files", "Add apex"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("sources tab missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "Unacknowledged alerts") {
+		t.Fatal("sources tab contains inventory alerts")
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/ui?tab=inventory", nil)
+	rec = httptest.NewRecorder()
+	handler.serveInventory(rec, req)
+	body = rec.Body.String()
+	if !strings.Contains(body, "Unacknowledged alerts") || strings.Contains(body, "Add apex") {
+		t.Fatalf("inventory tab content mismatch:\n%s", body)
 	}
 }
 
@@ -93,6 +129,62 @@ func TestHandlerAddsAndDeletesManagedTargets(t *testing.T) {
 	handler.serveDeleteManualHost(rec, req)
 	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "/ui?notice=") || store.deletedHost != "www.example.com:8443" {
 		t.Fatalf("delete host status=%d deleted=%q", rec.Code, store.deletedHost)
+	}
+}
+
+func TestHandlerSavesCrtNameSettings(t *testing.T) {
+	store := &fakeStore{}
+	handler, err := New(store)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := formRequest("/ui/crtname?tab=sources", "enabled=on&endpoint=https%3A%2F%2Fcrt.example%2Fsearch")
+	rec := httptest.NewRecorder()
+	handler.serveSaveCrtName(rec, req)
+	if rec.Code != http.StatusSeeOther || !store.crtNameEnabled || store.crtNameEndpoint != "https://crt.example/search" {
+		t.Fatalf("status=%d enabled=%t endpoint=%q", rec.Code, store.crtNameEnabled, store.crtNameEndpoint)
+	}
+	if got := rec.Header().Get("Location"); !strings.Contains(got, "tab=sources") || !strings.Contains(got, "notice=") {
+		t.Fatalf("Location = %q, want sources notice", got)
+	}
+}
+
+func TestHandlerAddsZoneFileWithinAllowedDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/example.zone", []byte("$ORIGIN example.com."), 0o600); err != nil {
+		t.Fatalf("write zone file: %v", err)
+	}
+	store := &fakeStore{}
+	handler, err := New(store, WithSourceConfig(config.Discovery{Zone: config.ZoneSource{AllowedDir: dir}}))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := formRequest("/ui/zone-files?tab=sources", "file=example.zone")
+	rec := httptest.NewRecorder()
+	handler.serveAddZoneFile(rec, req)
+	if rec.Code != http.StatusSeeOther || !strings.HasSuffix(store.addedZoneFile, "/example.zone") {
+		t.Fatalf("status=%d added zone file=%q", rec.Code, store.addedZoneFile)
+	}
+}
+
+func TestHandlerRejectsZoneTraversal(t *testing.T) {
+	dir := t.TempDir()
+	store := &fakeStore{}
+	handler, err := New(store, WithSourceConfig(config.Discovery{Zone: config.ZoneSource{AllowedDir: dir}}))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := formRequest("/ui/zone-files?tab=sources", "file=../outside.zone")
+	rec := httptest.NewRecorder()
+	handler.serveAddZoneFile(rec, req)
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Fatalf("status/location = %d/%q, want error redirect", rec.Code, rec.Header().Get("Location"))
+	}
+	if store.addedZoneFile != "" {
+		t.Fatalf("added zone file = %q, want empty", store.addedZoneFile)
 	}
 }
 
@@ -311,19 +403,24 @@ func formRequest(path, body string) *http.Request {
 
 type fakeStore struct {
 	store.Store
-	snapshot    store.InventorySnapshot
-	targets     store.ManagedTargets
-	events      []store.StoredEvent
-	suppressed  []store.SuppressedHost
-	err         error
-	addedApex   string
-	deletedApex string
-	addedHost   discover.Host
-	deletedHost string
-	ackID       int64
-	ackBy       string
-	ackErr      error
-	suppressKey string
+	snapshot        store.InventorySnapshot
+	targets         store.ManagedTargets
+	events          []store.StoredEvent
+	suppressed      []store.SuppressedHost
+	err             error
+	addedApex       string
+	deletedApex     string
+	addedHost       discover.Host
+	deletedHost     string
+	ackID           int64
+	ackBy           string
+	ackErr          error
+	suppressKey     string
+	discovery       store.ManagedDiscovery
+	crtNameEnabled  bool
+	crtNameEndpoint string
+	addedZoneFile   string
+	deletedZoneFile string
 }
 
 func (s fakeStore) InventorySnapshot(context.Context) (store.InventorySnapshot, error) {
@@ -375,6 +472,26 @@ func (s *fakeStore) SuppressHost(_ context.Context, hostname string, port int, _
 
 func (s *fakeStore) UnsuppressHost(_ context.Context, hostname string, port int) error {
 	s.suppressKey = "unsuppress:" + hostname + ":" + strconv.Itoa(port)
+	return nil
+}
+
+func (s *fakeStore) ManagedDiscovery(context.Context) (store.ManagedDiscovery, error) {
+	return s.discovery, s.err
+}
+
+func (s *fakeStore) SaveManagedCrtName(_ context.Context, enabled bool, endpoint string, _ time.Time) error {
+	s.crtNameEnabled = enabled
+	s.crtNameEndpoint = endpoint
+	return nil
+}
+
+func (s *fakeStore) AddManagedZoneFile(_ context.Context, path string, _ time.Time) error {
+	s.addedZoneFile = path
+	return nil
+}
+
+func (s *fakeStore) DeleteManagedZoneFile(_ context.Context, path string) error {
+	s.deletedZoneFile = path
 	return nil
 }
 

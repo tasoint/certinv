@@ -100,6 +100,9 @@ go run ./cmd/certinv serve --config config.yaml
 イベント／アラートの確認済み化、apex／manual hostの登録内容管理を行える設計です。
 インベントリ行の `Suppress` でホストを一覧と次回以降のscan対象から除外できます。
 `Suppressed hosts` セクションの `Unsuppress` で復元できます。
+`serve` では Prometheus metrics を `/metrics` で提供します。`/ui` は
+`Inventory` と `Sources & Targets` のタブに分かれており、`/` は `/ui` にリダイレクトします。
+UIから手動scanの実行、イベント／アラートの確認済み化、apex／manual hostの登録内容管理を行えます。
 未確認の warn / alert イベントは `/ui` から確認済みにできます。証明書の発行・更新や
 秘密鍵の操作は行いません。
 `/ui/export.csv` では、UIのインベントリ一覧と同等の証明書メタデータをCSVで
@@ -108,6 +111,9 @@ go run ./cmd/certinv serve --config config.yaml
 既にscan実行中の場合は新しい実行は拒否されます。
 UIではapex/manual hostをDB管理のオーバーレイとして追加・削除できます。`config.yaml` の
 `apexes` / `manual_hosts` は引き続き真のbaseとして扱われ、UIから変更・削除されません。
+crt.nameの有効/無効とendpoint、zone fileの追加もDB管理のオーバーレイとして保存されます。
+zone fileのUI追加を使う場合は、`discovery.zone.allowed_dir` に許可ディレクトリを設定し、
+UIからはその配下に実在するファイルだけを選択します。
 
 `exporter.basic_auth.username` と `exporter.basic_auth.password` の両方を設定すると、
 `/metrics` と `/ui` はBasic認証で保護されます。両方空の場合は認証なしで動作し、

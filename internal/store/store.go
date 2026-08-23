@@ -37,6 +37,10 @@ type Store interface {
 	DeleteManagedApex(ctx context.Context, apex string) error
 	AddManagedManualHost(ctx context.Context, host discover.Host, now time.Time) error
 	DeleteManagedManualHost(ctx context.Context, hostname string, port int) error
+	ManagedDiscovery(ctx context.Context) (ManagedDiscovery, error)
+	SaveManagedCrtName(ctx context.Context, enabled bool, endpoint string, now time.Time) error
+	AddManagedZoneFile(ctx context.Context, path string, now time.Time) error
+	DeleteManagedZoneFile(ctx context.Context, path string) error
 	Close() error
 }
 
@@ -98,6 +102,18 @@ type ManagedManualHost struct {
 	Apex     string
 	Source   string
 	AddedAt  string
+}
+
+type ManagedDiscovery struct {
+	CrtNameSet      bool
+	CrtNameEnabled  bool
+	CrtNameEndpoint string
+	ZoneFiles       []ManagedZoneFile
+}
+
+type ManagedZoneFile struct {
+	Path    string
+	AddedAt string
 }
 
 type InventoryRow struct {

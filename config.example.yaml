@@ -23,6 +23,8 @@ discovery:
   # DNSゾーンファイルから A / AAAA / CNAME のホスト名を取り込む場合:
   # sources: [crtname, manual, zone]
   # zone:
+  #   # UIから追加できるzone fileをこのディレクトリ配下に制限します。
+  #   allowed_dir: ./zones
   #   files:
   #     - ./example.com.zone
 
