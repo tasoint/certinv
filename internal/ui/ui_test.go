@@ -58,7 +58,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "remaining validity ratio", "expiring", "/ui/events/7/ack", "/ui/scan", "All clear", "/ui/hosts/suppress-all", "Purge all", "/ui/hosts/purge-all", "saved", "problem"} {
+	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "remaining validity ratio", "expiring", "/ui/events/7/ack", "/ui/scan", "inventory-host-filter", "inventory-status-filter", "data-inventory-host=\"www.example.com\"", "data-cert-state=\"healthy\"", "applyInventoryFilters", "All clear", "/ui/hosts/suppress-all", "Purge all", "/ui/hosts/purge-all", "saved", "problem"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}

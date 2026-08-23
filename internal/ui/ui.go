@@ -1508,6 +1508,16 @@ const pageTemplate = `<!doctype html>
     <h2>Inventory</h2>
     {{if .Rows}}
     <div class="actions">
+      <input id="inventory-host-filter" placeholder="Filter hostnames">
+      <select id="inventory-status-filter">
+        <option value="">All cert statuses</option>
+        <option value="healthy">healthy</option>
+        <option value="warn">warn</option>
+        <option value="alert">alert</option>
+        <option value="expired">expired</option>
+        <option value="misconfigured">misconfigured</option>
+        <option value="unknown">unknown</option>
+      </select>
       <form method="post" action="/ui/hosts/suppress-all" onsubmit="return confirm('表示中の全ホストをインベントリから削除します。次回scanでも対象外になります。よろしいですか？')"><button class="button" type="submit">All clear</button></form>
     </div>
     <div class="table-wrap">
@@ -1530,7 +1540,7 @@ const pageTemplate = `<!doctype html>
         </thead>
         <tbody>
           {{range .Rows}}
-          <tr>
+          <tr data-inventory-host="{{.Hostname}}" data-cert-state="{{fallback .CertState "unknown"}}">
             <td><strong>{{.Hostname}}</strong>:{{.Port}}<div class="muted">{{.Apex}} / {{.Source}}</div></td>
             <td>{{.HostStatus}}</td>
             <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .CertState "unknown"}}</span></td>
@@ -1598,6 +1608,28 @@ const pageTemplate = `<!doctype html>
           .catch(function () { setTimeout(poll, 1500); });
       }
       setTimeout(poll, 1500);
+    }());
+  </script>
+  {{end}}
+  {{if .Rows}}
+  <script>
+    (function () {
+      var hostFilter = document.getElementById('inventory-host-filter');
+      var statusFilter = document.getElementById('inventory-status-filter');
+      var rows = Array.prototype.slice.call(document.querySelectorAll('tr[data-inventory-host]'));
+      function applyInventoryFilters() {
+        var hostQuery = hostFilter.value.toLowerCase();
+        var status = statusFilter.value;
+        rows.forEach(function (row) {
+          var host = row.getAttribute('data-inventory-host').toLowerCase();
+          var certState = row.getAttribute('data-cert-state');
+          var hostMatch = !hostQuery || host.indexOf(hostQuery) !== -1;
+          var statusMatch = !status || certState === status;
+          row.style.display = hostMatch && statusMatch ? '' : 'none';
+        });
+      }
+      hostFilter.addEventListener('input', applyInventoryFilters);
+      statusFilter.addEventListener('change', applyInventoryFilters);
     }());
   </script>
   {{end}}
