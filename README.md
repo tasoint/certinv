@@ -121,7 +121,7 @@ certinv serve --config config.yaml
 - インベントリ行の `Suppress` でホストを一覧と次回以降のscan対象から除外し、`Suppressed hosts` の `Unsuppress` で復元できます。
 - `All clear` は表示中の全ホストをまとめてsuppressします。
 - `Purge` / `Purge all` はsuppressed hostのhost記録と証明書紐付けを完全削除しますが、証明書メタデータ本体は削除しません。
-- `/ui/export.csv` でインベントリ一覧と同等の証明書メタデータをCSVダウンロードできます。Inventoryテーブルはホスト名検索、証明書状態、ページサイズで表示を絞り込めます。
+- `/ui/export.csv` でインベントリ一覧と同等の証明書メタデータをCSVダウンロードできます。Inventoryテーブルはホスト名検索、証明書状態、ページサイズで表示を絞り込めます。Cert Stateごとの件数サマリーをクリックすると、その状態で絞り込めます。
 - Inventory、CSV、Prometheus metricsには証明書メタデータから推定した自動更新区分（`likely_auto` / `likely_manual` / `unknown`）も表示されます。UIでは読みやすいラベルと判定理由のツールチップで表示し、CSV/metricsでは外部連携用の値を維持します。
 - 証明書の発行・更新や秘密鍵の操作は行いません。
 
