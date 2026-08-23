@@ -1409,14 +1409,13 @@ const pageTemplate = `<!doctype html>
     <section>
       <h2>crt.name discovery</h2>
       <form method="post" action="/ui/crtname?tab=sources" class="forms">
-        <label><input type="checkbox" name="enabled" {{if .Sources.CrtName.Enabled}}checked{{end}}> Enabled</label>
+        <label><input type="checkbox" name="enabled" {{if .Sources.CrtName.Enabled}}checked{{end}}> Enabled for scheduled scans</label>
         <input name="endpoint" value="{{.Sources.CrtName.Endpoint}}" placeholder="https://crt.name/v1/search">
         <select name="apex">
           {{range .Lookup.Apexes}}<option value="{{.}}" {{if eq . $.Lookup.SelectedApex}}selected{{end}}>{{.}}</option>{{end}}
         </select>
         <button class="button" type="submit">Save crt.name</button>
         <button class="button" type="submit" formaction="/ui/crtname/lookup?tab=sources">Lookup now</button>
-        <span class="muted">origin={{displayOrigin .Sources.CrtName.Origin}}</span>
       </form>
       <div class="meta">Saving applies this setting to future scheduled scans and Run scan now.</div>
       <div class="meta">When enabled, every apex registered above is expanded to its known CT-log subdomains on each scan.</div>
