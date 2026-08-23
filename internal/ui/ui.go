@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -113,6 +114,8 @@ func (h *Handler) serveInventory(w http.ResponseWriter, r *http.Request) {
 		GeneratedAt: h.now().UTC().Format(time.RFC3339),
 		Rows:        snapshot.Rows,
 		Events:      events,
+		Notice:      r.URL.Query().Get("notice"),
+		Error:       r.URL.Query().Get("error"),
 	}
 	if targets, err := h.targetRows(r.Context()); err == nil {
 		data.Targets = targets
@@ -130,16 +133,14 @@ func (h *Handler) serveScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.scanner == nil {
-		http.Error(w, "scan trigger is not configured", http.StatusServiceUnavailable)
+		redirectUIError(w, r, "scan trigger is not configured")
 		return
 	}
 	if !h.scanner.TriggerScan() {
-		http.Error(w, "scan is already running", http.StatusConflict)
+		redirectUIError(w, r, "scan is already running")
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(http.StatusAccepted)
-	_, _ = w.Write([]byte("scan accepted\n"))
+	redirectUINotice(w, r, "scan accepted")
 }
 
 func (h *Handler) serveAddApex(w http.ResponseWriter, r *http.Request) {
@@ -149,19 +150,19 @@ func (h *Handler) serveAddApex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		redirectUIError(w, r, "invalid form")
 		return
 	}
 	apex, err := validateApex(r.FormValue("apex"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		redirectUIError(w, r, err.Error())
 		return
 	}
 	if err := h.store.AddManagedApex(r.Context(), apex, h.now()); err != nil {
-		http.Error(w, "failed to add apex", http.StatusInternalServerError)
+		redirectUIError(w, r, "failed to add apex")
 		return
 	}
-	http.Redirect(w, r, "/ui", http.StatusSeeOther)
+	redirectUINotice(w, r, "apex added")
 }
 
 func (h *Handler) serveDeleteApex(w http.ResponseWriter, r *http.Request) {
@@ -171,19 +172,19 @@ func (h *Handler) serveDeleteApex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		redirectUIError(w, r, "invalid form")
 		return
 	}
 	apex, err := validateApex(r.FormValue("apex"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		redirectUIError(w, r, err.Error())
 		return
 	}
 	if err := h.store.DeleteManagedApex(r.Context(), apex); err != nil {
-		http.Error(w, "failed to delete apex", http.StatusInternalServerError)
+		redirectUIError(w, r, "failed to delete apex")
 		return
 	}
-	http.Redirect(w, r, "/ui", http.StatusSeeOther)
+	redirectUINotice(w, r, "apex deleted")
 }
 
 func (h *Handler) serveAddManualHost(w http.ResponseWriter, r *http.Request) {
@@ -193,19 +194,19 @@ func (h *Handler) serveAddManualHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		redirectUIError(w, r, "invalid form")
 		return
 	}
 	host, err := h.validateManualHost(r.Context(), r.FormValue("hostname"), r.FormValue("port"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		redirectUIError(w, r, err.Error())
 		return
 	}
 	if err := h.store.AddManagedManualHost(r.Context(), host, h.now()); err != nil {
-		http.Error(w, "failed to add manual host", http.StatusInternalServerError)
+		redirectUIError(w, r, "failed to add manual host")
 		return
 	}
-	http.Redirect(w, r, "/ui", http.StatusSeeOther)
+	redirectUINotice(w, r, "manual host added")
 }
 
 func (h *Handler) serveDeleteManualHost(w http.ResponseWriter, r *http.Request) {
@@ -215,20 +216,20 @@ func (h *Handler) serveDeleteManualHost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err := r.ParseForm(); err != nil {
-		http.Error(w, "invalid form", http.StatusBadRequest)
+		redirectUIError(w, r, "invalid form")
 		return
 	}
 	hostname := discover.NormalizeHostname(r.FormValue("hostname"))
 	port, err := parsePort(r.FormValue("port"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		redirectUIError(w, r, err.Error())
 		return
 	}
 	if err := h.store.DeleteManagedManualHost(r.Context(), hostname, port); err != nil {
-		http.Error(w, "failed to delete manual host", http.StatusInternalServerError)
+		redirectUIError(w, r, "failed to delete manual host")
 		return
 	}
-	http.Redirect(w, r, "/ui", http.StatusSeeOther)
+	redirectUINotice(w, r, "manual host deleted")
 }
 
 func (h *Handler) serveExportCSV(w http.ResponseWriter, r *http.Request) {
@@ -299,6 +300,8 @@ type pageData struct {
 	Rows        []store.InventoryRow
 	Targets     targetRows
 	Events      []store.StoredEvent
+	Notice      string
+	Error       string
 }
 
 type targetRows struct {
@@ -344,6 +347,20 @@ func fallback(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func redirectUINotice(w http.ResponseWriter, r *http.Request, message string) {
+	redirectUIMessage(w, r, "notice", message)
+}
+
+func redirectUIError(w http.ResponseWriter, r *http.Request, message string) {
+	redirectUIMessage(w, r, "error", message)
+}
+
+func redirectUIMessage(w http.ResponseWriter, r *http.Request, key, message string) {
+	values := url.Values{}
+	values.Set(key, message)
+	http.Redirect(w, r, "/ui?"+values.Encode(), http.StatusSeeOther)
 }
 
 func (h *Handler) targetRows(ctx context.Context) (targetRows, error) {
@@ -619,6 +636,14 @@ const pageTemplate = `<!doctype html>
       background: var(--panel);
       border: 1px solid var(--line);
     }
+    .flash {
+      margin-bottom: 16px;
+      padding: 9px 10px;
+      border: 1px solid var(--line);
+      background: var(--panel);
+    }
+    .flash-notice { border-color: #8fd19e; color: var(--ok); }
+    .flash-error { border-color: #ff8182; color: var(--alert); }
   </style>
 </head>
 <body>
@@ -631,6 +656,8 @@ const pageTemplate = `<!doctype html>
     </div>
   </header>
   <main>
+    {{if .Notice}}<div class="flash flash-notice">{{.Notice}}</div>{{end}}
+    {{if .Error}}<div class="flash flash-error">{{.Error}}</div>{{end}}
     <section>
       <h2>Targets</h2>
       <div class="forms">
