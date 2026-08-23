@@ -189,6 +189,17 @@ ON CONFLICT(host_id, fingerprint) DO UPDATE SET
 	if err != nil {
 		return fmt.Errorf("link host %d to certificate %s: %w", hostID, fingerprint, err)
 	}
+
+	return nil
+}
+
+func (s *Store) SetHTTPStatus(ctx context.Context, hostID int64, fingerprint string, status int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, err := s.db.ExecContext(ctx, `UPDATE host_certificates SET http_status = ? WHERE host_id = ? AND fingerprint = ?`, status, hostID, fingerprint)
+	if err != nil {
+		return fmt.Errorf("set HTTP status for host %d: %w", hostID, err)
+	}
 	return nil
 }
 
@@ -381,6 +392,7 @@ SELECT
   COALESCE(hc.observed_at, ''),
   COALESCE(hc.chain_complete, 0),
   COALESCE(hc.hostname_match, 0),
+  COALESCE(hc.http_status, 0),
   COALESCE(c.last_seen_at, '')
 FROM hosts h
 LEFT JOIN host_certificates hc ON hc.host_id = h.id
@@ -421,6 +433,7 @@ ORDER BY h.hostname, h.port, c.not_after
 			&row.ObservedAt,
 			&chainComplete,
 			&hostnameMatch,
+			&row.HTTPStatus,
 			&row.LastSeenAt,
 		); err != nil {
 			return store.InventorySnapshot{}, fmt.Errorf("scan inventory snapshot: %w", err)
@@ -805,6 +818,29 @@ func (s *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("add events.%s: %w", column, err)
 		}
 	}
+	hostCertificateColumns := map[string]bool{}
+	rows, err = s.db.QueryContext(ctx, `PRAGMA table_info(host_certificates)`)
+	if err != nil {
+		return fmt.Errorf("inspect host_certificates schema: %w", err)
+	}
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan host_certificates schema: %w", err)
+		}
+		hostCertificateColumns[name] = true
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close host_certificates schema: %w", err)
+	}
+	if !hostCertificateColumns["http_status"] {
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE host_certificates ADD COLUMN http_status INTEGER`); err != nil {
+			return fmt.Errorf("add host_certificates.http_status: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -893,6 +929,7 @@ var schema = []string{
   observed_at       TEXT NOT NULL,
   chain_complete    INTEGER,
   hostname_match    INTEGER,
+  http_status       INTEGER,
   PRIMARY KEY (host_id, fingerprint)
 )`,
 	`CREATE TABLE IF NOT EXISTS certificate_states (

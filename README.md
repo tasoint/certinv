@@ -37,6 +37,7 @@ certinv は **自分が所有・管理するドメイン** の棚卸しに使う
   - `zone`: DNS zone file から取得
 - DNS 解決による生存確認
 - TLS probe と証明書メタデータ収集
+- 設定時のみHTTPS GETを行い、ホストのHTTPステータスコードを記録
 - SQLite への host / certificate / event 保存
 - 残存率ベースの warn / alert / expired / misconfigured 判定
 - Slack / Webhook 通知（状態遷移時のみ）

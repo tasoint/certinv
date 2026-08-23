@@ -1065,6 +1065,7 @@ var csvHeader = []string{
 	"last_probed_at",
 	"last_seen_at",
 	"observed_at",
+	"http_status",
 }
 
 func csvRow(row store.InventoryRow) []string {
@@ -1089,6 +1090,7 @@ func csvRow(row store.InventoryRow) []string {
 		row.LastProbedAt,
 		row.LastSeenAt,
 		row.ObservedAt,
+		strconv.Itoa(row.HTTPStatus),
 	}
 }
 
@@ -1423,6 +1425,7 @@ const pageTemplate = `<!doctype html>
             <th>SAN</th>
             <th>Last probed</th>
             <th>Observed</th>
+            <th>HTTP status</th>
             <th>Checks</th>
           </tr>
         </thead>
@@ -1439,6 +1442,7 @@ const pageTemplate = `<!doctype html>
             <td class="san">{{range splitSAN .SANNames}}<div>{{.}}</div>{{else}}<span class="muted">-</span>{{end}}</td>
             <td>{{fallback .LastProbedAt "-"}}</td>
             <td>{{fallback .ObservedAt "-"}}</td>
+            <td>{{if .HTTPStatus}}{{.HTTPStatus}}{{else}}-{{end}}</td>
             <td>chain={{.ChainComplete}}<br>host={{.HostnameMatch}}<br><form method="post" action="/ui/hosts/suppress" onsubmit="return confirm('このホストをインベントリから削除しますか？次回scanでも対象外になります')"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Suppress</button></form></td>
           </tr>
           {{end}}

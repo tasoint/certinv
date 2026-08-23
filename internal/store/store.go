@@ -20,6 +20,7 @@ type Store interface {
 	LatestHostCertificate(ctx context.Context, hostID int64) (HostCertificate, error)
 	UpsertCertificate(ctx context.Context, cert certmeta.Metadata, now time.Time) error
 	LinkHostCertificate(ctx context.Context, hostID int64, fingerprint string, chainComplete, hostnameMatch bool, now time.Time) error
+	SetHTTPStatus(ctx context.Context, hostID int64, fingerprint string, status int) error
 	GetCertificateState(ctx context.Context, hostID int64, fingerprint string) (string, error)
 	SetCertificateState(ctx context.Context, hostID int64, fingerprint, state string, now time.Time) error
 	RecordEvent(ctx context.Context, event evaluate.Event, now time.Time) (int64, error)
@@ -138,5 +139,6 @@ type InventoryRow struct {
 	ObservedAt     string
 	ChainComplete  bool
 	HostnameMatch  bool
+	HTTPStatus     int
 	LastSeenAt     string
 }
