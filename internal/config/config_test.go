@@ -98,6 +98,24 @@ discovery:
 	}
 }
 
+func TestLoadAcceptsZoneAllowedDir(t *testing.T) {
+	path := writeConfig(t, `
+apexes:
+  - example.com
+discovery:
+  zone:
+    allowed_dir: ./zones
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.Discovery.Zone.AllowedDir; got != "./zones" {
+		t.Fatalf("zone allowed_dir = %q, want ./zones", got)
+	}
+}
+
 func TestLoadAcceptsExporterBasicAuth(t *testing.T) {
 	path := writeConfig(t, `
 apexes:

@@ -69,13 +69,6 @@ func Run(ctx context.Context, cfg *config.Config, out io.Writer) (Summary, error
 }
 
 func NewRunner(cfg *config.Config, st store.Store, out io.Writer, logger *slog.Logger) (Runner, error) {
-	sources := make([]discover.Source, 0, len(cfg.Discovery.Sources))
-	if slices.Contains(cfg.Discovery.Sources, discover.SourceCrtName) {
-		sources = append(sources, crtname.New(cfg.Discovery.CrtName.Endpoint))
-	}
-	if slices.Contains(cfg.Discovery.Sources, discover.SourceZone) {
-		sources = append(sources, zonefile.New(cfg.Discovery.Zone.Files))
-	}
 	notifiers, err := notify.FromConfig(cfg.Notifiers)
 	if err != nil {
 		return Runner{}, err
@@ -83,7 +76,6 @@ func NewRunner(cfg *config.Config, st store.Store, out io.Writer, logger *slog.L
 
 	return Runner{
 		Config:    cfg,
-		Sources:   sources,
 		Resolver:  resolve.NewNetResolver(nil),
 		Prober:    probe.NewTLSProber(cfg.Probe.ConnectTimeout, cfg.Probe.HandshakeTimeout),
 		Store:     st,
@@ -224,6 +216,17 @@ func (r Runner) discover(ctx context.Context) ([]discover.Host, error) {
 	if err != nil {
 		return nil, err
 	}
+	sources, err := r.effectiveSources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, source := range sources {
+		hosts, err := source.Discover(ctx, apexes)
+		if err != nil {
+			return nil, fmt.Errorf("discover via %s: %w", source.Name(), err)
+		}
+		groups = append(groups, hosts)
+	}
 	for _, source := range r.Sources {
 		hosts, err := source.Discover(ctx, apexes)
 		if err != nil {
@@ -243,6 +246,33 @@ func (r Runner) discover(ctx context.Context) ([]discover.Host, error) {
 		groups = append(groups, hosts)
 	}
 	return discover.Merge(groups...), nil
+}
+
+func (r Runner) effectiveSources(ctx context.Context) ([]discover.Source, error) {
+	managed, err := r.Store.ManagedDiscovery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var sources []discover.Source
+	crtNameEnabled := slices.Contains(r.Config.Discovery.Sources, discover.SourceCrtName)
+	crtNameEndpoint := r.Config.Discovery.CrtName.Endpoint
+	if managed.CrtNameSet {
+		crtNameEnabled = managed.CrtNameEnabled
+		if managed.CrtNameEndpoint != "" {
+			crtNameEndpoint = managed.CrtNameEndpoint
+		}
+	}
+	if crtNameEnabled {
+		sources = append(sources, crtname.New(crtNameEndpoint))
+	}
+	zoneFiles := append([]string{}, r.Config.Discovery.Zone.Files...)
+	for _, file := range managed.ZoneFiles {
+		zoneFiles = append(zoneFiles, file.Path)
+	}
+	if slices.Contains(r.Config.Discovery.Sources, discover.SourceZone) || len(managed.ZoneFiles) > 0 {
+		sources = append(sources, zonefile.New(zoneFiles))
+	}
+	return sources, nil
 }
 
 func (r Runner) effectiveApexes(ctx context.Context) ([]string, error) {

@@ -538,6 +538,91 @@ func (s *Store) DeleteManagedManualHost(ctx context.Context, hostname string, po
 	return nil
 }
 
+func (s *Store) ManagedDiscovery(ctx context.Context) (store.ManagedDiscovery, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var discovery store.ManagedDiscovery
+	var enabled int
+	err := s.db.QueryRowContext(ctx, `
+SELECT enabled, endpoint
+FROM managed_crtname
+WHERE id = 1
+`).Scan(&enabled, &discovery.CrtNameEndpoint)
+	if err != nil && err != sql.ErrNoRows {
+		return store.ManagedDiscovery{}, fmt.Errorf("select managed crtname: %w", err)
+	}
+	if err == nil {
+		discovery.CrtNameSet = true
+		discovery.CrtNameEnabled = enabled == 1
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT path, added_at
+FROM managed_zone_files
+ORDER BY path
+`)
+	if err != nil {
+		return store.ManagedDiscovery{}, fmt.Errorf("select managed zone files: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var file store.ManagedZoneFile
+		if err := rows.Scan(&file.Path, &file.AddedAt); err != nil {
+			return store.ManagedDiscovery{}, fmt.Errorf("scan managed zone file: %w", err)
+		}
+		discovery.ZoneFiles = append(discovery.ZoneFiles, file)
+	}
+	if err := rows.Err(); err != nil {
+		return store.ManagedDiscovery{}, fmt.Errorf("iterate managed zone files: %w", err)
+	}
+	return discovery, nil
+}
+
+func (s *Store) SaveManagedCrtName(ctx context.Context, enabled bool, endpoint string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO managed_crtname (id, enabled, endpoint, updated_at)
+VALUES (1, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+  enabled = excluded.enabled,
+  endpoint = excluded.endpoint,
+  updated_at = excluded.updated_at
+`, boolInt(enabled), endpoint, formatTime(now))
+	if err != nil {
+		return fmt.Errorf("save managed crtname: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) AddManagedZoneFile(ctx context.Context, path string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `
+INSERT INTO managed_zone_files (path, added_at)
+VALUES (?, ?)
+ON CONFLICT(path) DO UPDATE SET added_at = excluded.added_at
+`, path, formatTime(now))
+	if err != nil {
+		return fmt.Errorf("add managed zone file %q: %w", path, err)
+	}
+	return nil
+}
+
+func (s *Store) DeleteManagedZoneFile(ctx context.Context, path string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, err := s.db.ExecContext(ctx, `DELETE FROM managed_zone_files WHERE path = ?`, path)
+	if err != nil {
+		return fmt.Errorf("delete managed zone file %q: %w", path, err)
+	}
+	return nil
+}
+
 func (s *Store) certificateMetrics(ctx context.Context) ([]store.CertificateMetric, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT fingerprint, COALESCE(issuer_cn, ''), COALESCE(subject_cn, ''), not_before, not_after, lifetime_days
@@ -670,6 +755,16 @@ var schema = []string{
   apex            TEXT NOT NULL,
   added_at        TEXT NOT NULL,
   PRIMARY KEY (hostname, port)
+)`,
+	`CREATE TABLE IF NOT EXISTS managed_crtname (
+  id              INTEGER PRIMARY KEY CHECK (id = 1),
+  enabled         INTEGER NOT NULL,
+  endpoint        TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+)`,
+	`CREATE TABLE IF NOT EXISTS managed_zone_files (
+  path            TEXT PRIMARY KEY,
+  added_at        TEXT NOT NULL
 )`,
 	`CREATE TABLE IF NOT EXISTS apexes (
   apex           TEXT PRIMARY KEY,
