@@ -11,6 +11,7 @@ Certificate Transparency 由来のサブドメイン一覧から到達可能な�
 > `serve` では Prometheus exporter とインベントリ確認・限定的な運用操作を行う Web UI を提供します。
 > 詳細は [docs/status.md](docs/status.md) と [docs/design.md](docs/design.md) を参照してください。
 > 開発者向けの検証手順は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) を参照してください。
+> 設定項目の詳細は [docs/CONFIGURATION.md](docs/CONFIGURATION.md) を参照してください。
 
 ## 背景
 

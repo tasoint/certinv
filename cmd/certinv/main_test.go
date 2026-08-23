@@ -20,12 +20,15 @@ func TestScopedCheckTargetAcceptsApexHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("scopedCheckTarget() error = %v", err)
 	}
+
 	if hostname != "www.example.com" {
 		t.Fatalf("hostname = %q, want www.example.com", hostname)
 	}
+
 	if apex != "example.com" {
 		t.Fatalf("apex = %q, want example.com", apex)
 	}
+
 }
 
 func TestScopedCheckTargetRejectsOutOfScopeHost(t *testing.T) {
@@ -300,5 +303,15 @@ func TestSerialScanRunnerRejectsConcurrentManualScan(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Fatal("scan runner did not accept another run after completion")
+	}
+}
+
+func TestRunVersion(t *testing.T) {
+	var out bytes.Buffer
+	if err := runVersion(nil, &out); err != nil {
+		t.Fatalf("runVersion() error = %v", err)
+	}
+	if got, want := out.String(), version+"\n"; got != want {
+		t.Fatalf("version output = %q, want %q", got, want)
 	}
 }

@@ -13,6 +13,7 @@ before they expire.
 > the inventory and performing limited operational actions.
 > See [docs/status.md](docs/status.md) and [docs/design.md](docs/design.md) for details.
 > Developer verification steps are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+> See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for configuration details.
 
 ## Background
 
