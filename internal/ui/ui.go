@@ -1409,7 +1409,7 @@ const pageTemplate = `<!doctype html>
     <section>
       <h2>crt.name discovery</h2>
       <form method="post" action="/ui/crtname?tab=sources" class="forms">
-        <label><input type="checkbox" name="enabled" {{if .Sources.CrtName.Enabled}}checked{{end}}> Enabled</label>
+        <label><input type="checkbox" name="enabled" {{if .Sources.CrtName.Enabled}}checked{{end}}> Enabled for scheduled scans</label>
         <input name="endpoint" value="{{.Sources.CrtName.Endpoint}}" placeholder="https://crt.name/v1/search">
         <select name="apex">
           {{range .Lookup.Apexes}}<option value="{{.}}" {{if eq . $.Lookup.SelectedApex}}selected{{end}}>{{.}}</option>{{end}}

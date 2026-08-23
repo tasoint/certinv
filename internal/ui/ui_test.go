@@ -89,7 +89,7 @@ func TestHandlerRendersTabs(t *testing.T) {
 		t.Fatalf("sources status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Apexes", "Manual hosts", "crt.name discovery", "Zone files", "Add apex", "Add manual host", "/ui/manual-hosts/edit", "Update port", "Saved setting:", "Saving applies this setting", "CT-log subdomains", "not a filter for apex discovery", "every apex registered above", "example.com", "config.yaml", "Added in UI"} {
+	for _, want := range []string{"Apexes", "Manual hosts", "crt.name discovery", "Zone files", "Add apex", "Add manual host", "/ui/manual-hosts/edit", "Update port", "Enabled for scheduled scans", "Saved setting:", "Saving applies this setting", "CT-log subdomains", "not a filter for apex discovery", "every apex registered above", "example.com", "config.yaml", "Added in UI"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("sources tab missing %q:\n%s", want, body)
 		}
