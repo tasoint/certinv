@@ -111,8 +111,10 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/ui/manual-hosts/edit", h.serveEditManualHost)
 	mux.HandleFunc("/ui/manual-hosts/delete", h.serveDeleteManualHost)
 	mux.HandleFunc("/ui/hosts/suppress", h.serveSuppressHost)
+	mux.HandleFunc("/ui/hosts/suppress-all", h.serveSuppressAllHosts)
 	mux.HandleFunc("/ui/hosts/unsuppress", h.serveUnsuppressHost)
 	mux.HandleFunc("/ui/hosts/purge", h.servePurgeHost)
+	mux.HandleFunc("/ui/hosts/purge-all", h.servePurgeAllHosts)
 	mux.HandleFunc("/ui/crtname", h.serveSaveCrtName)
 	mux.HandleFunc("/ui/crtname/lookup", h.serveCrtNameLookup)
 	mux.HandleFunc("/ui/crtname/add-selected", h.serveAddCrtNameSelected)
@@ -527,6 +529,31 @@ func (h *Handler) serveSuppressHost(w http.ResponseWriter, r *http.Request) {
 	redirectUINotice(w, r, "host suppressed")
 }
 
+func (h *Handler) serveSuppressAllHosts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	snapshot, err := h.store.InventorySnapshot(r.Context())
+	if err != nil {
+		redirectUIError(w, r, "failed to load inventory")
+		return
+	}
+	for _, row := range snapshot.Rows {
+		hostname := discover.NormalizeHostname(row.Hostname)
+		port := normalizedPort(row.Port)
+		if hostname == "" {
+			continue
+		}
+		if err := h.store.SuppressHost(r.Context(), hostname, port, h.now()); err != nil {
+			redirectUIError(w, r, "failed to suppress hosts")
+			return
+		}
+	}
+	redirectUINotice(w, r, fmt.Sprintf("suppressed %d hosts", len(snapshot.Rows)))
+}
+
 func (h *Handler) serveUnsuppressHost(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
@@ -571,6 +598,31 @@ func (h *Handler) servePurgeHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirectUINotice(w, r, "host purged")
+}
+
+func (h *Handler) servePurgeAllHosts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	suppressed, err := h.store.SuppressedHosts(r.Context())
+	if err != nil {
+		redirectUIError(w, r, "failed to load suppressed hosts")
+		return
+	}
+	for _, host := range suppressed {
+		hostname := discover.NormalizeHostname(host.Hostname)
+		port := normalizedPort(host.Port)
+		if hostname == "" {
+			continue
+		}
+		if err := h.store.PurgeHost(r.Context(), hostname, port); err != nil {
+			redirectUIError(w, r, "failed to purge hosts")
+			return
+		}
+	}
+	redirectUINotice(w, r, fmt.Sprintf("purged %d hosts", len(suppressed)))
 }
 
 func (h *Handler) acknowledgeEvent(w http.ResponseWriter, r *http.Request) {
@@ -1424,6 +1476,7 @@ const pageTemplate = `<!doctype html>
     </section>
     <section>
     <h2>Unacknowledged alerts</h2>
+    <p class="meta">Alerts appear here when a certificate's remaining validity ratio crosses the warn or alert threshold. Acknowledge them once reviewed; certificate data is unchanged.</p>
     {{if .Events}}
     <div class="table-wrap">
       <table>
@@ -1447,6 +1500,9 @@ const pageTemplate = `<!doctype html>
     <section>
     <h2>Inventory</h2>
     {{if .Rows}}
+    <div class="actions">
+      <form method="post" action="/ui/hosts/suppress-all" onsubmit="return confirm('表示中の全ホストをインベントリから削除します。次回scanでも対象外になります。よろしいですか？')"><button class="button" type="submit">All clear</button></form>
+    </div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -1491,6 +1547,9 @@ const pageTemplate = `<!doctype html>
       <section>
         <h2>Suppressed hosts</h2>
         {{if .Suppressed}}
+        <div class="actions">
+          <form method="post" action="/ui/hosts/purge-all" onsubmit="return confirm('suppress済みの全ホスト記録を完全に削除します。元に戻せません。よろしいですか？')"><button class="button" type="submit">Purge all</button></form>
+        </div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Host</th><th>Action</th></tr></thead>

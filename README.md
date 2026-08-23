@@ -102,6 +102,8 @@ UIから手動scanの実行、イベント／アラートの確認済み化、ap
 インベントリ行の `Suppress` でホストを一覧と次回以降のscan対象から除外でき、
 `Suppressed hosts` セクションの `Unsuppress` で復元できます。`Purge` はsuppressed hostの
 host記録と証明書紐付けを完全削除しますが、証明書メタデータ本体は削除しません。
+`All clear` は現在表示されている全ホストをまとめてsuppressし、`Purge all` は
+suppressed hostの記録をまとめて完全削除します。
 未確認の warn / alert イベントは `/ui` から確認済みにできます。証明書の発行・更新や
 秘密鍵の操作は行いません。
 `/ui/export.csv` では、UIのインベントリ一覧と同等の証明書メタデータをCSVで
