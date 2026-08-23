@@ -17,8 +17,8 @@ func TestDiscoverFiltersOutOfScopeNames(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`[
-			{"subdomain":"www.example.com","first_seen":"2026-08-23"},
-			{"name_value":"*.example.com\noutside.example.net"}
+			{"sub":"www.example.com","first_seen":"2026-08-23"},
+			{"sub":"*.example.com\noutside.example.net"}
 		]`))
 	}))
 	defer server.Close()
@@ -30,5 +30,15 @@ func TestDiscoverFiltersOutOfScopeNames(t *testing.T) {
 	}
 	if len(hosts) != 2 {
 		t.Fatalf("len(hosts) = %d, want 2", len(hosts))
+	}
+}
+
+func TestRecordHostnamesKeepsLegacyFields(t *testing.T) {
+	names := record{
+		Subdomain: "legacy.example.com",
+		NameValue: "*.example.com\napi.example.com",
+	}.hostnames()
+	if len(names) != 3 {
+		t.Fatalf("len(names) = %d, want 3: %#v", len(names), names)
 	}
 }

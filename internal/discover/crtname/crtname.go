@@ -108,6 +108,7 @@ func (s *Source) discoverApex(ctx context.Context, apex string) ([]discover.Host
 }
 
 type record struct {
+	Sub       string `json:"sub"`
 	Subdomain string `json:"subdomain"`
 	NameValue string `json:"name_value"`
 	FirstSeen string `json:"first_seen"`
@@ -116,7 +117,7 @@ type record struct {
 
 func (r record) hostnames() []string {
 	var names []string
-	for _, field := range []string{r.Subdomain, r.NameValue} {
+	for _, field := range []string{r.Sub, r.Subdomain, r.NameValue} {
 		for _, name := range strings.FieldsFunc(field, func(r rune) bool {
 			return r == '\n' || r == ',' || r == ' ' || r == '\t'
 		}) {

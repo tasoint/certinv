@@ -173,7 +173,7 @@ func TestHandlerLooksUpCrtNameCandidates(t *testing.T) {
 			t.Fatalf("apex query = %q, want example.com", gotApex)
 		}
 		if err := json.NewEncoder(w).Encode([]map[string]string{
-			{"name_value": "www.example.com\napi.example.com\noutside.example.net"},
+			{"sub": "www.example.com\napi.example.com\noutside.example.net"},
 		}); err != nil {
 			t.Fatalf("encode response: %v", err)
 		}
@@ -219,7 +219,7 @@ func TestHandlerCrtNameLookupUsesManagedSettingsAndApexes(t *testing.T) {
 			t.Fatalf("apex query = %q, want managed.example.net", gotApex)
 		}
 		if err := json.NewEncoder(w).Encode([]map[string]string{
-			{"subdomain": "app.managed.example.net"},
+			{"sub": "app.managed.example.net"},
 		}); err != nil {
 			t.Fatalf("encode response: %v", err)
 		}
