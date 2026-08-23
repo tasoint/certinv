@@ -274,6 +274,58 @@ ORDER BY id
 	return events, nil
 }
 
+func (s *Store) UnacknowledgedEvents(ctx context.Context) ([]store.StoredEvent, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id, kind, fingerprint, COALESCE(host_id, 0), COALESCE(detail, ''),
+       COALESCE(acknowledged_at, ''), COALESCE(acknowledged_by, '')
+FROM events
+WHERE acknowledged_at IS NULL AND kind IN (?, ?)
+ORDER BY id DESC
+`, evaluate.EventWarn, evaluate.EventAlert)
+	if err != nil {
+		return nil, fmt.Errorf("select unacknowledged events: %w", err)
+	}
+	defer rows.Close()
+
+	var events []store.StoredEvent
+	for rows.Next() {
+		var event store.StoredEvent
+		if err := rows.Scan(&event.ID, &event.Kind, &event.Fingerprint, &event.HostID, &event.Detail,
+			&event.AcknowledgedAt, &event.AcknowledgedBy); err != nil {
+			return nil, fmt.Errorf("scan unacknowledged event: %w", err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate unacknowledged events: %w", err)
+	}
+	return events, nil
+}
+
+func (s *Store) AcknowledgeEvent(ctx context.Context, eventID int64, by string, now time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	result, err := s.db.ExecContext(ctx, `
+UPDATE events SET acknowledged_at = ?, acknowledged_by = ?
+WHERE id = ? AND acknowledged_at IS NULL AND kind IN (?, ?)
+`, formatTime(now), by, eventID, evaluate.EventWarn, evaluate.EventAlert)
+	if err != nil {
+		return fmt.Errorf("acknowledge event %d: %w", eventID, err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check acknowledged event %d: %w", eventID, err)
+	}
+	if affected == 0 {
+		return store.ErrEventNotFound
+	}
+	return nil
+}
+
 func (s *Store) MarkEventNotified(ctx context.Context, eventID int64, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -451,6 +503,36 @@ func (s *Store) migrate(ctx context.Context) error {
 			return fmt.Errorf("migrate sqlite: %w", err)
 		}
 	}
+	columns := map[string]bool{}
+	rows, err := s.db.QueryContext(ctx, `PRAGMA table_info(events)`)
+	if err != nil {
+		return fmt.Errorf("inspect events schema: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			return fmt.Errorf("scan events schema: %w", err)
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate events schema: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close events schema: %w", err)
+	}
+	for _, column := range []string{"acknowledged_at", "acknowledged_by"} {
+		if columns[column] {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, `ALTER TABLE events ADD COLUMN `+column+` TEXT`); err != nil {
+			return fmt.Errorf("add events.%s: %w", column, err)
+		}
+	}
 	return nil
 }
 
@@ -528,6 +610,8 @@ var schema = []string{
   host_id           INTEGER,
   occurred_at       TEXT NOT NULL,
   notified_at       TEXT,
+  acknowledged_at   TEXT,
+  acknowledged_by   TEXT,
   detail            TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_hosts_apex ON hosts(apex)`,

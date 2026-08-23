@@ -3,6 +3,7 @@ package ui
 import (
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"net/http"
 	"strconv"
@@ -38,6 +39,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/", h.redirectRoot)
 	mux.HandleFunc("/ui", h.serveInventory)
 	mux.HandleFunc("/ui/export.csv", h.serveExportCSV)
+	mux.HandleFunc("/ui/events/", h.acknowledgeEvent)
 }
 
 func (h *Handler) redirectRoot(w http.ResponseWriter, r *http.Request) {
@@ -59,9 +61,15 @@ func (h *Handler) serveInventory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to load inventory", http.StatusInternalServerError)
 		return
 	}
+	events, err := h.store.UnacknowledgedEvents(r.Context())
+	if err != nil {
+		http.Error(w, "failed to load events", http.StatusInternalServerError)
+		return
+	}
 	data := pageData{
 		GeneratedAt: h.now().UTC().Format(time.RFC3339),
 		Rows:        snapshot.Rows,
+		Events:      events,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := h.template.Execute(w, data); err != nil {
@@ -100,9 +108,42 @@ func (h *Handler) serveExportCSV(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) acknowledgeEvent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	const prefix = "/ui/events/"
+	path := strings.TrimPrefix(r.URL.Path, prefix)
+	if !strings.HasSuffix(path, "/ack") {
+		http.NotFound(w, r)
+		return
+	}
+	id, err := strconv.ParseInt(strings.TrimSuffix(path, "/ack"), 10, 64)
+	if err != nil || id <= 0 {
+		http.NotFound(w, r)
+		return
+	}
+	by, _, ok := r.BasicAuth()
+	if !ok || strings.TrimSpace(by) == "" {
+		by = "ui"
+	}
+	if err := h.store.AcknowledgeEvent(r.Context(), id, by, h.now()); err != nil {
+		if errors.Is(err, store.ErrEventNotFound) {
+			http.NotFound(w, r)
+			return
+		}
+		http.Error(w, "failed to acknowledge event", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/ui", http.StatusSeeOther)
+}
+
 type pageData struct {
 	GeneratedAt string
 	Rows        []store.InventoryRow
+	Events      []store.StoredEvent
 }
 
 func shortFingerprint(fingerprint string) string {
@@ -299,10 +340,31 @@ const pageTemplate = `<!doctype html>
 <body>
   <header>
     <h1>certinv inventory</h1>
-    <div class="meta">Generated at {{.GeneratedAt}}. Read-only view.</div>
+    <div class="meta">Generated at {{.GeneratedAt}}.</div>
     <div class="actions"><a class="button" href="/ui/export.csv">Download CSV</a></div>
   </header>
   <main>
+    <h2>Unacknowledged alerts</h2>
+    {{if .Events}}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Event</th><th>Fingerprint</th><th>Detail</th><th>Action</th></tr></thead>
+        <tbody>
+          {{range .Events}}
+          <tr>
+            <td><span class="state state-{{.Kind}}">{{.Kind}}</span></td>
+            <td class="mono">{{shortFingerprint .Fingerprint}}</td>
+            <td>{{.Detail}}</td>
+            <td><form method="post" action="/ui/events/{{.ID}}/ack"><button type="submit">Acknowledge</button></form></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="empty">No unacknowledged warn or alert events.</div>
+    {{end}}
+    <h2>Inventory</h2>
     {{if .Rows}}
     <div class="table-wrap">
       <table>

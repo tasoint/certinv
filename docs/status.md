@@ -50,6 +50,12 @@ PR #5:
 - host / certificate / state / issuer / SAN / last probe などの読み取り専用一覧
 - Go 標準ライブラリの `net/http` と `html/template` のみを使用
 
+## 実装済みの追加機能
+
+- UIに未確認の warn / alert イベント一覧を表示
+- Basic認証で保護されたPOSTエンドポイントからイベントを acknowledged に変更
+- 確認状態は `events.acknowledged_at` / `acknowledged_by` に保存し、証明書情報は変更しない
+
 ## 検証コマンド
 
 ```sh
