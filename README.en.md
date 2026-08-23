@@ -13,6 +13,7 @@ before they expire.
 > the inventory and performing limited operational actions.
 > See [docs/status.md](docs/status.md) and [docs/design.md](docs/design.md) for details.
 > Developer verification steps are in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+> See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for configuration details.
 
 ## Background
 
@@ -72,13 +73,13 @@ For a first run, follow these steps from configuration through continuous operat
 3. Run a one-off scan:
 
    ```sh
-   go run ./cmd/certinv scan --config config.yaml
+   certinv scan --config config.yaml
    ```
 
 4. Start the resident service, including scheduled scans, the web UI, and metrics:
 
    ```sh
-   go run ./cmd/certinv serve --config config.yaml
+   certinv serve --config config.yaml
    ```
 
 5. Open http://localhost:9101/ui in a browser.
@@ -93,19 +94,20 @@ If `GOBIN` is unset, the binary is normally built in `GOPATH/bin` (typically
 `~/go/bin`). Add that directory to `PATH`, or create a symlink in a directory
 already on `PATH` such as `~/.local/bin`, to run `certinv scan`, `certinv serve`,
 and `certinv check` directly.
+To run directly from source instead, prefix each command with `go run ./cmd/certinv`.
 
 ### Command usage
 
 One-off `scan`:
 
 ```sh
-go run ./cmd/certinv scan --config config.yaml
+certinv scan --config config.yaml
 ```
 
 Resident `serve`:
 
 ```sh
-go run ./cmd/certinv serve --config config.yaml
+certinv serve --config config.yaml
 ```
 
 ### Inventory tab
@@ -156,8 +158,8 @@ manage Grafana; this JSON is only an import template.
 One-off FQDN check:
 
 ```sh
-go run ./cmd/certinv check --config config.example.yaml www.example.com
-go run ./cmd/certinv check --config config.example.yaml --port 8443 app.example.com
+certinv check --config config.example.yaml www.example.com
+certinv check --config config.example.yaml --port 8443 app.example.com
 ```
 
 The FQDN supplied to `check` must be under an apex in the configuration file;

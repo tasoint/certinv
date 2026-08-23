@@ -24,6 +24,8 @@ import (
 	"github.com/tasoint/certinv/internal/ui"
 )
 
+var version = "dev"
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		fmt.Fprintf(os.Stderr, "certinv: %v\n", err)
@@ -37,6 +39,8 @@ func run(args []string) error {
 	}
 
 	switch args[0] {
+	case "version", "--version":
+		return runVersion(args[1:], os.Stdout)
 	case "scan":
 		return runScan(args[1:])
 	case "serve":
@@ -46,6 +50,15 @@ func run(args []string) error {
 	default:
 		return usageError()
 	}
+
+}
+
+func runVersion(args []string, out io.Writer) error {
+	if len(args) != 0 {
+		return fmt.Errorf("version does not accept arguments")
+	}
+	_, err := fmt.Fprintln(out, version)
+	return err
 }
 
 func runScan(args []string) error {

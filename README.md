@@ -11,6 +11,7 @@ Certificate Transparency 由来のサブドメイン一覧から到達可能な�
 > `serve` では Prometheus exporter とインベントリ確認・限定的な運用操作を行う Web UI を提供します。
 > 詳細は [docs/status.md](docs/status.md) と [docs/design.md](docs/design.md) を参照してください。
 > 開発者向けの検証手順は [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) を参照してください。
+> 設定項目の詳細は [docs/CONFIGURATION.md](docs/CONFIGURATION.md) を参照してください。
 
 ## 背景
 
@@ -62,6 +63,7 @@ go install ./cmd/certinv
 ビルドされます。そのディレクトリを `PATH` に追加するか、`~/.local/bin` など
 すでに `PATH` が通っているディレクトリへシンボリックリンクを作成すると、
 `certinv scan` / `certinv serve` / `certinv check` をそのまま実行できます。
+ソースから直接実行する場合は、各コマンドの前に `go run ./cmd/certinv` を付けます。
 
 ### クイックスタート
 
@@ -83,13 +85,13 @@ go install ./cmd/certinv
 3. 単発スキャンを実行します。
 
    ```sh
-   go run ./cmd/certinv scan --config config.yaml
+   certinv scan --config config.yaml
    ```
 
 4. 常駐モードを起動します。定期スキャンに加えて Web UI と Prometheus metrics を提供します。
 
    ```sh
-   go run ./cmd/certinv serve --config config.yaml
+   certinv serve --config config.yaml
    ```
 
 5. ブラウザで http://localhost:9101/ui を開き、インベントリを確認します。
@@ -99,13 +101,13 @@ go install ./cmd/certinv
 単発 `scan`:
 
 ```sh
-go run ./cmd/certinv scan --config config.yaml
+certinv scan --config config.yaml
 ```
 
 常駐 `serve`:
 
 ```sh
-go run ./cmd/certinv serve --config config.yaml
+certinv serve --config config.yaml
 ```
 
 `serve` では Prometheus metrics を `/metrics` で提供します。`/ui` は
@@ -160,8 +162,8 @@ certinv自体はGrafanaを実行・管理せず、このJSONはインポート�
 単発FQDNチェック:
 
 ```sh
-go run ./cmd/certinv check --config config.example.yaml www.example.com
-go run ./cmd/certinv check --config config.example.yaml --port 8443 app.example.com
+certinv check --config config.example.yaml www.example.com
+certinv check --config config.example.yaml --port 8443 app.example.com
 ```
 
 `check` で指定できるFQDNは設定ファイルの `apexes` 配下だけです。apex外の任意ドメインは
