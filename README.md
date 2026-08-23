@@ -98,6 +98,8 @@ go run ./cmd/certinv serve --config config.yaml
 `serve` では Prometheus metrics を `/metrics` で提供します。`/ui` でインベントリ一覧と
 限定的な運用操作を提供し、`/` は `/ui` にリダイレクトします。UIから手動scanの実行、
 イベント／アラートの確認済み化、apex／manual hostの登録内容管理を行える設計です。
+未確認の warn / alert イベントは `/ui` から確認済みにできます。証明書の発行・更新や
+秘密鍵の操作は行いません。
 `/ui/export.csv` では、UIのインベントリ一覧と同等の証明書メタデータをCSVで
 ダウンロードできます。
 `/ui` の `Run scan now` ボタンから、設定済みapexを対象にしたscanを即時実行できます。

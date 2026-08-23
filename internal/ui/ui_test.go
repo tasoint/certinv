@@ -7,12 +7,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/tasoint/certinv/internal/evaluate"
 	"github.com/tasoint/certinv/internal/store"
 )
 
 func TestHandlerRendersInventory(t *testing.T) {
-	handler, err := New(fakeStore{snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
+	handler, err := New(&fakeStore{snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
 		{
 			Hostname:      "www.example.com",
 			Port:          443,
@@ -28,7 +30,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 			ChainComplete: true,
 			HostnameMatch: true,
 		},
-	}}})
+	}}, events: []store.StoredEvent{{ID: 7, Event: evaluate.Event{Kind: evaluate.EventWarn, Fingerprint: "abcdef1234567890", Detail: "expiring"}}}})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -41,7 +43,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "/ui/scan"} {
+	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "expiring", "/ui/events/7/ack", "/ui/scan"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
@@ -53,7 +55,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 
 func TestHandlerAcceptsManualScan(t *testing.T) {
 	scanner := &fakeScanner{accepted: true}
-	handler, err := New(fakeStore{}, WithScanTrigger(scanner))
+	handler, err := New(&fakeStore{}, WithScanTrigger(scanner))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -74,7 +76,7 @@ func TestHandlerAcceptsManualScan(t *testing.T) {
 }
 
 func TestHandlerRejectsManualScanWhenRunning(t *testing.T) {
-	handler, err := New(fakeStore{}, WithScanTrigger(&fakeScanner{accepted: false}))
+	handler, err := New(&fakeStore{}, WithScanTrigger(&fakeScanner{accepted: false}))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -92,7 +94,7 @@ func TestHandlerRejectsManualScanWhenRunning(t *testing.T) {
 }
 
 func TestHandlerExportsInventoryCSV(t *testing.T) {
-	handler, err := New(fakeStore{snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
+	handler, err := New(&fakeStore{snapshot: store.InventorySnapshot{Rows: []store.InventoryRow{
 		{
 			Hostname:       "www.example.com",
 			Port:           443,
@@ -155,7 +157,7 @@ func TestHandlerExportsInventoryCSV(t *testing.T) {
 }
 
 func TestHandlerRedirectsRoot(t *testing.T) {
-	handler, err := New(fakeStore{})
+	handler, err := New(&fakeStore{})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -171,6 +173,38 @@ func TestHandlerRedirectsRoot(t *testing.T) {
 	}
 }
 
+func TestHandlerAcknowledgesEvent(t *testing.T) {
+	fake := &fakeStore{}
+	handler, err := New(fake)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/ui/events/7/ack", nil)
+	req.SetBasicAuth("operator", "secret")
+	rec := httptest.NewRecorder()
+	handler.acknowledgeEvent(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	if fake.ackID != 7 || fake.ackBy != "operator" {
+		t.Fatalf("acknowledgement = id %d by %q, want id 7 by operator", fake.ackID, fake.ackBy)
+	}
+}
+
+func TestHandlerAcknowledgeMissingEvent(t *testing.T) {
+	handler, err := New(&fakeStore{ackErr: store.ErrEventNotFound})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/ui/events/999/ack", nil)
+	rec := httptest.NewRecorder()
+	handler.acknowledgeEvent(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+}
+
 func containsCSVField(row []string, want string) bool {
 	for _, field := range row {
 		if field == want {
@@ -183,11 +217,25 @@ func containsCSVField(row []string, want string) bool {
 type fakeStore struct {
 	store.Store
 	snapshot store.InventorySnapshot
+	events   []store.StoredEvent
 	err      error
+	ackID    int64
+	ackBy    string
+	ackErr   error
 }
 
 func (s fakeStore) InventorySnapshot(context.Context) (store.InventorySnapshot, error) {
 	return s.snapshot, s.err
+}
+
+func (s *fakeStore) UnacknowledgedEvents(context.Context) ([]store.StoredEvent, error) {
+	return s.events, s.err
+}
+
+func (s *fakeStore) AcknowledgeEvent(_ context.Context, eventID int64, by string, _ time.Time) error {
+	s.ackID = eventID
+	s.ackBy = by
+	return s.ackErr
 }
 
 type fakeScanner struct {

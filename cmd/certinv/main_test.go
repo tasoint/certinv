@@ -151,6 +151,29 @@ func TestOptionalBasicAuthProtectsUIExport(t *testing.T) {
 	}
 }
 
+func TestOptionalBasicAuthProtectsEventAcknowledgement(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ui/events/1/ack", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := withOptionalBasicAuth(mux, config.ExporterAuth{Username: "operator", Password: "secret"})
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/events/1/ack", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/ui/events/1/ack", nil)
+	req.SetBasicAuth("operator", "secret")
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("authenticated status = %d, want %d", rec.Code, http.StatusNoContent)
+	}
+}
+
 func TestOptionalBasicAuthProtectsUIScan(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ui/scan", func(w http.ResponseWriter, r *http.Request) {
