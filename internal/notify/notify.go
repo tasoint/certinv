@@ -56,11 +56,11 @@ func FromConfig(configs []config.Notifier, opts ...Option) ([]Notifier, error) {
 type payloadFunc func(e evaluate.Event) (any, error)
 
 type httpNotifier struct {
-	name       string
-	url        string
-	events     []string
-	client     *http.Client
-	build      payloadFunc
+	name   string
+	url    string
+	events []string
+	client *http.Client
+	build  payloadFunc
 }
 
 func newHTTPNotifier(name, url string, events []string, build payloadFunc, opts ...Option) *httpNotifier {
