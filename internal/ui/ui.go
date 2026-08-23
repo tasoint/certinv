@@ -1468,6 +1468,7 @@ const pageTemplate = `<!doctype html>
     <section>
       <h2>Apexes</h2>
       <p class="meta">Adding an apex lets certinv discover and scan its CT-log subdomains when crt.name discovery is enabled below. Manual hosts are additive targets for hosts that do not appear in CT logs; they are not a filter for apex discovery.</p>
+      <p class="meta">Only add domains you own or administer. certinv is not intended for investigating third-party domains.</p>
       <div class="forms">
         <form method="post" action="/ui/apexes?tab=sources">
           <input name="apex" placeholder="example.com" required>
