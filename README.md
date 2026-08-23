@@ -112,6 +112,9 @@ host記録と証明書紐付けを完全削除しますが、証明書メタデ�
 UIではapex/manual hostをDB管理のオーバーレイとして追加・削除できます。DB管理の
 manual hostはhostnameを固定したままportを編集できます。`config.yaml` の
 `apexes` / `manual_hosts` は引き続き真のbaseとして扱われ、UIから変更・削除されません。
+apexはcrt.name discovery有効時にCTログ上のサブドメインを自動発見するスコープであり、
+manual hostはCTログに現れないホストを追加するためのものです。manual hostはapex discoveryの
+絞り込み条件ではありません。
 crt.nameの有効/無効とendpoint、zone fileの追加もDB管理のオーバーレイとして保存されます。
 `Sources & Targets` タブでは、設定済みのcrt.name endpointに対して現在のapex一覧
 （config + DB管理apex）から選んだ1つのapexでlookupを実行し、取得したサブドメイン候補を選択して
