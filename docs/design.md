@@ -234,8 +234,8 @@ Notifier はインターフェースとして定義し、Slack / 汎用Webhook �
 
 ```
 certinv_cert_not_after_timestamp{fingerprint,issuer,common_name}
-certinv_cert_lifetime_days{fingerprint}
-certinv_cert_remaining_ratio{fingerprint}
+certinv_cert_lifetime_days{fingerprint,issuer,common_name}
+certinv_cert_remaining_ratio{fingerprint,issuer,common_name}
 certinv_host_reachable{host,port}
 certinv_scan_duration_seconds
 certinv_scan_last_success_timestamp
