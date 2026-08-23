@@ -85,10 +85,13 @@ func TestHandlerRendersTabs(t *testing.T) {
 		t.Fatalf("sources status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"Apexes", "Manual hosts", "crt.name discovery", "Zone files", "Add apex", "Add manual host", "/ui/manual-hosts/edit", "Update port", "Saved setting:", "Saving applies this setting", "example.com"} {
+	for _, want := range []string{"Apexes", "Manual hosts", "crt.name discovery", "Zone files", "Add apex", "Add manual host", "/ui/manual-hosts/edit", "Update port", "Saved setting:", "Saving applies this setting", "example.com", "config.yaml", "Added in UI"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("sources tab missing %q:\n%s", want, body)
 		}
+	}
+	if !strings.Contains(body, "<th>Hostname</th><th>Apex</th><th>Origin</th><th>Port</th><th>Action</th>") {
+		t.Fatalf("manual hosts header has unexpected order:\n%s", body)
 	}
 	if strings.Contains(body, "Unacknowledged alerts") {
 		t.Fatal("sources tab contains inventory alerts")
