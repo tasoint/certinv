@@ -345,6 +345,54 @@ func TestStoreSuppressesHostFromInventory(t *testing.T) {
 	}
 }
 
+func TestStorePurgesSuppressedHost(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, ":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 8, 23, 0, 0, 0, 0, time.UTC)
+	if err := db.UpsertApex(ctx, "example.com", now); err != nil {
+		t.Fatalf("UpsertApex() error = %v", err)
+	}
+	hostID, err := db.UpsertHost(ctx, discover.Host{Hostname: "www.example.com", Port: 443, Apex: "example.com", Source: discover.SourceManual}, "active", now)
+	if err != nil {
+		t.Fatalf("UpsertHost() error = %v", err)
+	}
+	certificate := certmeta.Metadata{
+		Fingerprint:   "purgecert",
+		NotBefore:     now.Add(-24 * time.Hour),
+		NotAfter:      now.Add(47 * 24 * time.Hour),
+		LifetimeDays:  48,
+		IsSelfSigned:  true,
+		SANNames:      []string{"www.example.com"},
+		ChainComplete: true,
+		HostnameMatch: true,
+	}
+	if err := db.UpsertCertificate(ctx, certificate, now); err != nil {
+		t.Fatalf("UpsertCertificate() error = %v", err)
+	}
+	if err := db.LinkHostCertificate(ctx, hostID, certificate.Fingerprint, true, true, now); err != nil {
+		t.Fatalf("LinkHostCertificate() error = %v", err)
+	}
+	if err := db.SuppressHost(ctx, "www.example.com", 443, now); err != nil {
+		t.Fatalf("SuppressHost() error = %v", err)
+	}
+	if err := db.PurgeHost(ctx, "www.example.com", 443); err != nil {
+		t.Fatalf("PurgeHost() error = %v", err)
+	}
+	for table, want := range map[string]int{"hosts": 0, "host_certificates": 0, "suppressed_hosts": 0, "certificates": 1} {
+		var count int
+		if err := db.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM `+table).Scan(&count); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if count != want {
+			t.Fatalf("%s count = %d, want %d", table, count, want)
+		}
+	}
+}
+
 func TestManagedDiscovery(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(ctx, ":memory:")

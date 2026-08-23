@@ -100,6 +100,20 @@ func TestHandlerRendersTabs(t *testing.T) {
 	}
 }
 
+func TestHandlerRendersScanPollingAfterAcceptedNotice(t *testing.T) {
+	handler, err := New(&fakeStore{})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/ui?notice=scan+accepted", nil)
+	rec := httptest.NewRecorder()
+	handler.serveInventory(rec, req)
+	body := rec.Body.String()
+	if !strings.Contains(body, "/ui/scan/status") || !strings.Contains(body, "credentials: 'same-origin'") {
+		t.Fatalf("body missing scan polling script:\n%s", body)
+	}
+}
+
 func TestHandlerAddsAndDeletesManagedTargets(t *testing.T) {
 	store := &fakeStore{}
 	handler, err := New(store, WithConfigTargets([]string{"example.com"}, nil))
@@ -421,6 +435,7 @@ type fakeStore struct {
 	crtNameEndpoint string
 	addedZoneFile   string
 	deletedZoneFile string
+	purgedHost      string
 }
 
 func (s fakeStore) InventorySnapshot(context.Context) (store.InventorySnapshot, error) {
@@ -475,6 +490,11 @@ func (s *fakeStore) UnsuppressHost(_ context.Context, hostname string, port int)
 	return nil
 }
 
+func (s *fakeStore) PurgeHost(_ context.Context, hostname string, port int) error {
+	s.purgedHost = hostname + ":" + strconv.Itoa(port)
+	return nil
+}
+
 func (s *fakeStore) ManagedDiscovery(context.Context) (store.ManagedDiscovery, error) {
 	return s.discovery, s.err
 }
@@ -497,12 +517,17 @@ func (s *fakeStore) DeleteManagedZoneFile(_ context.Context, path string) error 
 
 type fakeScanner struct {
 	accepted bool
+	running  bool
 	calls    int
 }
 
 func (s *fakeScanner) TriggerScan() bool {
 	s.calls++
 	return s.accepted
+}
+
+func (s *fakeScanner) Running() bool {
+	return s.running
 }
 
 func TestHandlerSuppressesAndUnsuppressesHost(t *testing.T) {
@@ -520,5 +545,31 @@ func TestHandlerSuppressesAndUnsuppressesHost(t *testing.T) {
 	handler.serveUnsuppressHost(rec, formRequest("/ui/hosts/unsuppress", "hostname=www.example.com&port=443"))
 	if rec.Code != http.StatusSeeOther || fake.suppressKey != "unsuppress:www.example.com:443" {
 		t.Fatalf("unsuppress status/key = %d/%q", rec.Code, fake.suppressKey)
+	}
+}
+
+func TestHandlerPurgesSuppressedHost(t *testing.T) {
+	fake := &fakeStore{}
+	handler, err := New(fake)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	rec := httptest.NewRecorder()
+	handler.servePurgeHost(rec, formRequest("/ui/hosts/purge", "hostname=www.example.com&port=443"))
+	if rec.Code != http.StatusSeeOther || fake.purgedHost != "www.example.com:443" {
+		t.Fatalf("purge status/host = %d/%q", rec.Code, fake.purgedHost)
+	}
+}
+
+func TestHandlerReportsScanStatus(t *testing.T) {
+	handler, err := New(&fakeStore{}, WithScanTrigger(&fakeScanner{running: true}))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/ui/scan/status", nil)
+	rec := httptest.NewRecorder()
+	handler.serveScanStatus(rec, req)
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"running":true`) {
+		t.Fatalf("status/body = %d/%s", rec.Code, rec.Body.String())
 	}
 }

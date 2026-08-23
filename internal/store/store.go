@@ -32,6 +32,7 @@ type Store interface {
 	SuppressedHosts(ctx context.Context) ([]SuppressedHost, error)
 	SuppressHost(ctx context.Context, hostname string, port int, now time.Time) error
 	UnsuppressHost(ctx context.Context, hostname string, port int) error
+	PurgeHost(ctx context.Context, hostname string, port int) error
 	ManagedTargets(ctx context.Context) (ManagedTargets, error)
 	AddManagedApex(ctx context.Context, apex string, now time.Time) error
 	DeleteManagedApex(ctx context.Context, apex string) error
