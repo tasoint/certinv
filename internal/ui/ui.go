@@ -336,7 +336,7 @@ const pageTemplate = `<!doctype html>
 <body>
   <header>
     <h1>certinv inventory</h1>
-    <div class="meta">Generated at {{.GeneratedAt}}. Read-only view.</div>
+    <div class="meta">Generated at {{.GeneratedAt}}. Certificates and keys are not modified from this UI.</div>
     <div class="actions">
       <form method="post" action="/ui/scan" style="display:inline"><button class="button" type="submit">Run scan now</button></form>
       <a class="button" href="/ui/export.csv">Download CSV</a>
