@@ -83,7 +83,7 @@ func TestHandlerRendersTabs(t *testing.T) {
 		t.Fatalf("sources status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"crt.name discovery", "Zone files", "Add apex"} {
+	for _, want := range []string{"crt.name discovery", "Zone files", "Add apex", "Saved setting:", "Saving applies this setting", "example.com"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("sources tab missing %q:\n%s", want, body)
 		}
@@ -147,6 +147,45 @@ func TestHandlerAddsAndDeletesManagedTargets(t *testing.T) {
 	}
 }
 
+func TestHandlerEditsManagedManualHostPort(t *testing.T) {
+	store := &fakeStore{targets: store.ManagedTargets{ManualHosts: []store.ManagedManualHost{
+		{Hostname: "www.example.com", Port: 443, Apex: "example.com", Source: "db"},
+	}}}
+	handler, err := New(store, WithConfigTargets([]string{"example.com"}, nil))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	handler.serveEditManualHost(rec, formRequest("/ui/manual-hosts/edit?tab=sources", "hostname=www.example.com&old_port=443&port=8443"))
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "tab=sources") {
+		t.Fatalf("status/location = %d/%q", rec.Code, rec.Header().Get("Location"))
+	}
+	if store.deletedHost != "www.example.com:443" {
+		t.Fatalf("deleted host = %q, want www.example.com:443", store.deletedHost)
+	}
+	if store.addedHost.Hostname != "www.example.com" || store.addedHost.Port != 8443 {
+		t.Fatalf("added host = %#v, want www.example.com:8443", store.addedHost)
+	}
+}
+
+func TestHandlerRejectsEditingConfigManualHost(t *testing.T) {
+	store := &fakeStore{}
+	handler, err := New(store, WithConfigTargets([]string{"example.com"}, []config.ManualHost{{Hostname: "www.example.com", Port: 443}}))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	handler.serveEditManualHost(rec, formRequest("/ui/manual-hosts/edit?tab=sources", "hostname=www.example.com&old_port=443&port=8443"))
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Fatalf("status/location = %d/%q", rec.Code, rec.Header().Get("Location"))
+	}
+	if store.deletedHost != "" || store.addedHost.Hostname != "" {
+		t.Fatalf("store mutated deleted=%q added=%#v", store.deletedHost, store.addedHost)
+	}
+}
+
 func TestHandlerSavesCrtNameSettings(t *testing.T) {
 	store := &fakeStore{}
 	handler, err := New(store)
@@ -191,7 +230,7 @@ func TestHandlerLooksUpCrtNameCandidates(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	req := formRequest("/ui/crtname/lookup?tab=sources", "")
+	req := formRequest("/ui/crtname/lookup?tab=sources", "enabled=on&endpoint="+server.URL+"&apex=example.com")
 	rec := httptest.NewRecorder()
 	handler.serveCrtNameLookup(rec, req)
 	if rec.Code != http.StatusOK {
@@ -211,9 +250,11 @@ func TestHandlerLooksUpCrtNameCandidates(t *testing.T) {
 	}
 }
 
-func TestHandlerCrtNameLookupUsesManagedSettingsAndApexes(t *testing.T) {
+func TestHandlerCrtNameLookupUsesSelectedApexAndFormEndpoint(t *testing.T) {
 	var gotApex string
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	usedFormEndpoint := false
+	formServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		usedFormEndpoint = true
 		gotApex = r.URL.Query().Get("apex")
 		if gotApex != "managed.example.net" {
 			t.Fatalf("apex query = %q, want managed.example.net", gotApex)
@@ -224,24 +265,70 @@ func TestHandlerCrtNameLookupUsesManagedSettingsAndApexes(t *testing.T) {
 			t.Fatalf("encode response: %v", err)
 		}
 	}))
-	defer server.Close()
+	defer formServer.Close()
+	savedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("saved endpoint should not be used for lookup")
+	}))
+	defer savedServer.Close()
 
 	handler, err := New(&fakeStore{
 		targets: store.ManagedTargets{Apexes: []store.ManagedApex{{Apex: "managed.example.net", Source: "db"}}},
 		discovery: store.ManagedDiscovery{
 			CrtNameSet:      true,
 			CrtNameEnabled:  true,
-			CrtNameEndpoint: server.URL,
+			CrtNameEndpoint: savedServer.URL,
 		},
-	}, WithSourceConfig(config.Discovery{Sources: []string{discover.SourceCrtName}, CrtName: config.CrtNameSource{Endpoint: "http://unused.invalid"}}))
+	}, WithConfigTargets([]string{"example.com"}, nil), WithSourceConfig(config.Discovery{Sources: []string{discover.SourceCrtName}, CrtName: config.CrtNameSource{Endpoint: savedServer.URL}}))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
 
 	rec := httptest.NewRecorder()
-	handler.serveCrtNameLookup(rec, formRequest("/ui/crtname/lookup?tab=sources", ""))
+	handler.serveCrtNameLookup(rec, formRequest("/ui/crtname/lookup?tab=sources", "enabled=on&endpoint="+formServer.URL+"&apex=managed.example.net"))
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "app.managed.example.net") {
 		t.Fatalf("status/body = %d/%s", rec.Code, rec.Body.String())
+	}
+	if !usedFormEndpoint {
+		t.Fatal("form endpoint was not used")
+	}
+	if strings.Contains(rec.Body.String(), "www.example.com") {
+		t.Fatalf("body includes unselected apex candidate:\n%s", rec.Body.String())
+	}
+}
+
+func TestHandlerCrtNameLookupExcludesExistingManualHosts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewEncoder(w).Encode([]map[string]string{
+			{"sub": "www.example.com\napi.example.com\ndb.example.com"},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	handler, err := New(&fakeStore{
+		targets: store.ManagedTargets{ManualHosts: []store.ManagedManualHost{
+			{Hostname: "db.example.com", Port: 8443, Apex: "example.com", Source: "db"},
+		}},
+	}, WithConfigTargets([]string{"example.com"}, []config.ManualHost{{Hostname: "www.example.com", Port: 443}}), WithSourceConfig(config.Discovery{
+		Sources: []string{discover.SourceCrtName},
+		CrtName: config.CrtNameSource{Endpoint: server.URL},
+	}))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	handler.serveCrtNameLookup(rec, formRequest("/ui/crtname/lookup?tab=sources", "enabled=on&endpoint="+server.URL+"&apex=example.com"))
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "api.example.com") {
+		t.Fatalf("status/body = %d/%s", rec.Code, body)
+	}
+	if strings.Contains(body, `data-crtname-host="www.example.com"`) || strings.Contains(body, `data-crtname-host="db.example.com"`) {
+		t.Fatalf("body contains already registered host:\n%s", body)
+	}
+	if !strings.Contains(body, "Filter hostnames") || !strings.Contains(body, "Select all") || !strings.Contains(body, "Clear all") {
+		t.Fatalf("body missing candidate controls:\n%s", body)
 	}
 }
 
@@ -396,6 +483,10 @@ func TestHandlerRedirectsActionValidationErrors(t *testing.T) {
 		"delete manual host": {
 			req:   formRequest("/ui/manual-hosts/delete", "hostname=www.example.com&port=bad"),
 			serve: handler.serveDeleteManualHost,
+		},
+		"edit manual host": {
+			req:   formRequest("/ui/manual-hosts/edit", "hostname=www.example.com&old_port=443&port=bad"),
+			serve: handler.serveEditManualHost,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
