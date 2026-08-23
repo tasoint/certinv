@@ -107,6 +107,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/ui/apexes", h.serveAddApex)
 	mux.HandleFunc("/ui/apexes/delete", h.serveDeleteApex)
 	mux.HandleFunc("/ui/manual-hosts", h.serveAddManualHost)
+	mux.HandleFunc("/ui/manual-hosts/edit", h.serveEditManualHost)
 	mux.HandleFunc("/ui/manual-hosts/delete", h.serveDeleteManualHost)
 	mux.HandleFunc("/ui/hosts/suppress", h.serveSuppressHost)
 	mux.HandleFunc("/ui/hosts/unsuppress", h.serveUnsuppressHost)
@@ -265,6 +266,42 @@ func (h *Handler) serveDeleteManualHost(w http.ResponseWriter, r *http.Request) 
 	redirectUINotice(w, r, "manual host deleted")
 }
 
+func (h *Handler) serveEditManualHost(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirectUITabError(w, r, "sources", "invalid form")
+		return
+	}
+	hostname := discover.NormalizeHostname(r.FormValue("hostname"))
+	oldPort, err := parsePort(r.FormValue("old_port"))
+	if hostname == "" || err != nil {
+		redirectUITabError(w, r, "sources", "invalid host")
+		return
+	}
+	if !h.hasManagedManualHost(r.Context(), hostname, oldPort) {
+		redirectUITabError(w, r, "sources", "manual host is not editable")
+		return
+	}
+	host, err := h.validateManualHost(r.Context(), hostname, r.FormValue("port"))
+	if err != nil {
+		redirectUITabError(w, r, "sources", err.Error())
+		return
+	}
+	if err := h.store.DeleteManagedManualHost(r.Context(), hostname, oldPort); err != nil {
+		redirectUITabError(w, r, "sources", "failed to update manual host")
+		return
+	}
+	if err := h.store.AddManagedManualHost(r.Context(), host, h.now()); err != nil {
+		redirectUITabError(w, r, "sources", "failed to update manual host")
+		return
+	}
+	redirectUITabNotice(w, r, "sources", "manual host updated")
+}
+
 func (h *Handler) serveSaveCrtName(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
@@ -321,8 +358,16 @@ func (h *Handler) serveCrtNameLookup(w http.ResponseWriter, r *http.Request) {
 		h.renderSourcesError(w, r, "crtname lookup failed")
 		return
 	}
+	registered, err := h.registeredManualHostnames(r.Context())
+	if err != nil {
+		h.renderSourcesError(w, r, "failed to load existing targets")
+		return
+	}
 	candidates := make([]crtNameCandidate, 0, len(hosts))
 	for _, host := range hosts {
+		if _, ok := registered[host.Hostname]; ok {
+			continue
+		}
 		candidates = append(candidates, crtNameCandidate{
 			Hostname: host.Hostname,
 			Apex:     host.Apex,
@@ -753,6 +798,40 @@ func (h *Handler) targetRows(ctx context.Context) (targetRows, error) {
 		})
 	}
 	return rows, nil
+}
+
+func (h *Handler) hasManagedManualHost(ctx context.Context, hostname string, port int) bool {
+	managed, err := h.store.ManagedTargets(ctx)
+	if err != nil {
+		return false
+	}
+	for _, host := range managed.ManualHosts {
+		if discover.NormalizeHostname(host.Hostname) == hostname && host.Port == port {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *Handler) registeredManualHostnames(ctx context.Context) (map[string]struct{}, error) {
+	registered := make(map[string]struct{})
+	for _, host := range h.config.ManualHosts {
+		hostname := discover.NormalizeHostname(host.Hostname)
+		if hostname != "" {
+			registered[hostname] = struct{}{}
+		}
+	}
+	managed, err := h.store.ManagedTargets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, host := range managed.ManualHosts {
+		hostname := discover.NormalizeHostname(host.Hostname)
+		if hostname != "" {
+			registered[hostname] = struct{}{}
+		}
+	}
+	return registered, nil
 }
 
 func (h *Handler) effectiveApexes(ctx context.Context) ([]string, error) {
@@ -1209,7 +1288,7 @@ const pageTemplate = `<!doctype html>
             {{range .Targets.ManualHosts}}
             <tr>
               <td>manual</td><td>{{.Hostname}}:{{.Port}}</td><td>{{.Apex}}</td><td>{{.Origin}}</td>
-              <td>{{if .CanDelete}}<form method="post" action="/ui/manual-hosts/delete?tab=sources"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
+              <td>{{if .CanDelete}}<form method="post" action="/ui/manual-hosts/edit?tab=sources" style="display:inline"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="old_port" value="{{.Port}}"><input name="port" value="{{.Port}}" size="5"><button class="button" type="submit">Update port</button></form> <form method="post" action="/ui/manual-hosts/delete?tab=sources" style="display:inline"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config</span>{{end}}</td>
             </tr>
             {{end}}
           </tbody>
@@ -1227,12 +1306,17 @@ const pageTemplate = `<!doctype html>
       </form>
       {{if .Lookup.Candidates}}
       <form method="post" action="/ui/crtname/add-selected?tab=sources">
+        <div class="forms">
+          <input id="crtname-filter" placeholder="Filter hostnames">
+          <button class="button" type="button" id="crtname-select-all">Select all</button>
+          <button class="button" type="button" id="crtname-clear-all">Clear all</button>
+        </div>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Select</th><th>Hostname</th><th>Apex</th><th>Port</th></tr></thead>
             <tbody>
               {{range .Lookup.Candidates}}
-              <tr>
+              <tr data-crtname-host="{{.Hostname}}">
                 <td><input type="checkbox" name="hostname" value="{{.Hostname}}"></td>
                 <td>{{.Hostname}}</td>
                 <td>{{.Apex}}</td>
@@ -1381,6 +1465,36 @@ const pageTemplate = `<!doctype html>
           .catch(function () { setTimeout(poll, 1500); });
       }
       setTimeout(poll, 1500);
+    }());
+  </script>
+  {{end}}
+  {{if .Lookup.Candidates}}
+  <script>
+    (function () {
+      var filter = document.getElementById('crtname-filter');
+      var selectAll = document.getElementById('crtname-select-all');
+      var clearAll = document.getElementById('crtname-clear-all');
+      var rows = Array.prototype.slice.call(document.querySelectorAll('tr[data-crtname-host]'));
+      function visibleRows() {
+        return rows.filter(function (row) { return row.style.display !== 'none'; });
+      }
+      filter.addEventListener('input', function () {
+        var query = filter.value.toLowerCase();
+        rows.forEach(function (row) {
+          var host = row.getAttribute('data-crtname-host').toLowerCase();
+          row.style.display = host.indexOf(query) === -1 ? 'none' : '';
+        });
+      });
+      selectAll.addEventListener('click', function () {
+        visibleRows().forEach(function (row) {
+          row.querySelector('input[type="checkbox"]').checked = true;
+        });
+      });
+      clearAll.addEventListener('click', function () {
+        rows.forEach(function (row) {
+          row.querySelector('input[type="checkbox"]').checked = false;
+        });
+      });
     }());
   </script>
   {{end}}

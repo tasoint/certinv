@@ -108,13 +108,15 @@ host記録と証明書紐付けを完全削除しますが、証明書メタデ�
 `/ui` の `Run scan now` ボタンから、設定済みapexを対象にしたscanを即時実行できます。
 既にscan実行中の場合は新しい実行は拒否されます。手動scan受付後は `/ui/scan/status` を
 短時間ポーリングし、完了後にUIを再読み込みします。
-UIではapex/manual hostをDB管理のオーバーレイとして追加・削除できます。`config.yaml` の
+UIではapex/manual hostをDB管理のオーバーレイとして追加・削除できます。DB管理の
+manual hostはhostnameを固定したままportを編集できます。`config.yaml` の
 `apexes` / `manual_hosts` は引き続き真のbaseとして扱われ、UIから変更・削除されません。
 crt.nameの有効/無効とendpoint、zone fileの追加もDB管理のオーバーレイとして保存されます。
 `Sources & Targets` タブでは、設定済みのcrt.name endpointに対して現在のapex一覧
 （config + DB管理apex）でlookupを実行し、取得したサブドメイン候補を選択して
 managed manual host（port 443）としてTargetsへ追加できます。このlookupは候補取得のみで、
-DNS解決やTLS probeは行いません。
+DNS解決やTLS probeは行いません。既にmanual hostとして登録済みのhostnameは候補から除外され、
+候補一覧はホスト名で絞り込み、全選択／全解除できます。
 zone fileのUI追加を使う場合は、`discovery.zone.allowed_dir` に許可ディレクトリを設定し、
 UIからはその配下に実在するファイルだけを選択します。
 
