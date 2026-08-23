@@ -179,7 +179,6 @@ func TestMetricsSnapshot(t *testing.T) {
 		t.Fatal("host reachable = false, want true")
 	}
 }
-
 func TestInventorySnapshot(t *testing.T) {
 	ctx := context.Background()
 	store, err := Open(ctx, ":memory:")
