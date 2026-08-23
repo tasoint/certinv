@@ -2,7 +2,9 @@
 # config.yaml にコピーして編集してください（config.yaml は .gitignore 済み）
 
 # 処理対象の apex ドメイン。ここに登録したものだけが処理されます。
-# eTLD+1 である必要があります（例: example.com は可、www.example.com は不可）
+# eTLD+1 である必要があります（例: example.com は可、www.example.com は不可）。
+# example.comのままcrt.name discoveryを有効にすると大量の無関係なホストが見つかるため、
+# 必ず自分が所有・管理する実際のドメインに書き換えてください。
 apexes:
   - example.com
 
