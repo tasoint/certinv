@@ -1618,7 +1618,7 @@ const pageTemplate = `<!doctype html>
             <td><strong>{{.Hostname}}</strong>:{{.Port}}<div class="muted">{{.Apex}} / {{.Source}}</div></td>
             <td>{{.HostStatus}}</td>
             <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .CertState "unknown"}}</span></td>
-            <td>{{fallback .NotAfter "-"}}</td>
+            <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .NotAfter "-"}}</span></td>
             <td>{{fallback .IssuerCN "-"}}<div class="muted">{{.IssuerOrg}}</div></td>
             <td>{{fallback .SubjectCN "-"}}</td>
             <td class="mono" title="{{.Fingerprint}}">{{shortFingerprint .Fingerprint}}</td>
