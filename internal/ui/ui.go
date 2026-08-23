@@ -1470,7 +1470,7 @@ const pageTemplate = `<!doctype html>
     {{else}}
     <section>
     <div class="actions">
-      <form method="post" action="/ui/scan" style="display:inline"><label><input type="checkbox" name="include_crtname" value="true" {{if .Sources.CrtName.Enabled}}checked{{end}}> Include crt.name</label> <button class="button" type="submit">Run scan now</button></form>
+      <form method="post" action="/ui/scan" style="display:inline"><label><input type="checkbox" name="include_crtname" value="true"> Include crt.name</label> <button class="button" type="submit">Run scan now</button></form>
       <a class="button" href="/ui/export.csv">Download CSV</a>
     </div>
     </section>
