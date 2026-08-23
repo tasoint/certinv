@@ -1,8 +1,19 @@
 # Development
 
-## Verification
+Go 1.25 or later is required. Run these commands from the repository root.
 
-Go 1.25 以降を使用し、リポジトリのルートで次の確認を実行します。
+## Installing the command
+
+```sh
+go install ./cmd/certinv
+```
+
+If `GOBIN` is unset, the binary is normally built in `GOPATH/bin` (typically
+`~/go/bin`). Add that directory to `PATH`, or create a symlink in a directory
+already on `PATH` such as `~/.local/bin`, to run `certinv scan`, `certinv serve`,
+and `certinv check` directly.
+
+## Verification
 
 ```sh
 go test ./...

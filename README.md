@@ -1,5 +1,7 @@
 # certinv
 
+Read this in English: [README.en.md](README.en.md)
+
 **所有ドメインのTLS証明書インベントリツール**
 
 Certificate Transparency 由来のサブドメイン一覧から到達可能なホストを絞り込み、
@@ -47,6 +49,19 @@ certinv は **自分が所有・管理するドメイン** の棚卸しに使う
 ## 使い方
 
 Go 1.25 以降が必要です。
+
+### インストール
+
+次のコマンドで `certinv` をインストールします。
+
+```sh
+go install ./cmd/certinv
+```
+
+`GOBIN` を設定していない場合は通常 `GOPATH/bin`（一般的には `~/go/bin`）に
+ビルドされます。そのディレクトリを `PATH` に追加するか、`~/.local/bin` など
+すでに `PATH` が通っているディレクトリへシンボリックリンクを作成すると、
+`certinv scan` / `certinv serve` / `certinv check` をそのまま実行できます。
 
 ### クイックスタート
 
