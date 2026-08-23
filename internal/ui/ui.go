@@ -1416,7 +1416,6 @@ const pageTemplate = `<!doctype html>
         </select>
         <button class="button" type="submit">Save crt.name</button>
         <button class="button" type="submit" formaction="/ui/crtname/lookup?tab=sources">Lookup now</button>
-        <span class="muted">origin={{displayOrigin .Sources.CrtName.Origin}}</span>
       </form>
       <div class="meta">Saving applies this setting to future scheduled scans and Run scan now.</div>
       <div class="meta">When enabled, every apex registered above is expanded to its known CT-log subdomains on each scan.</div>

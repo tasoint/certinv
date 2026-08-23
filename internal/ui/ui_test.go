@@ -97,6 +97,9 @@ func TestHandlerRendersTabs(t *testing.T) {
 	if !strings.Contains(body, "<th>Hostname</th><th>Apex</th><th>Origin</th><th>Port</th><th>Action</th>") {
 		t.Fatalf("manual hosts header has unexpected order:\n%s", body)
 	}
+	if strings.Contains(body, "origin=config.yaml") || strings.Contains(body, "origin=Added in UI") {
+		t.Fatalf("crtname origin label should not be rendered:\n%s", body)
+	}
 	if strings.Contains(body, "Unacknowledged alerts") {
 		t.Fatal("sources tab contains inventory alerts")
 	}
