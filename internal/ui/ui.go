@@ -1583,6 +1583,15 @@ const pageTemplate = `<!doctype html>
         <option value="misconfigured">misconfigured</option>
         <option value="unknown">unknown</option>
       </select>
+      <label>Rows <select id="inventory-page-size">
+        <option value="10">10</option>
+        <option value="20" selected>20</option>
+        <option value="50">50</option>
+        <option value="all">All</option>
+      </select></label>
+      <button class="button" id="inventory-prev-page" type="button">Prev</button>
+      <span class="meta" id="inventory-page-label">Page 1 / 1</span>
+      <button class="button" id="inventory-next-page" type="button">Next</button>
       <form method="post" action="/ui/hosts/suppress-all" onsubmit="return confirm('表示中の全ホストをインベントリから削除します。次回scanでも対象外になります。よろしいですか？')"><button class="button" type="submit">All clear</button></form>
     </div>
     <div class="table-wrap">
@@ -1609,7 +1618,7 @@ const pageTemplate = `<!doctype html>
             <td><strong>{{.Hostname}}</strong>:{{.Port}}<div class="muted">{{.Apex}} / {{.Source}}</div></td>
             <td>{{.HostStatus}}</td>
             <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .CertState "unknown"}}</span></td>
-            <td>{{fallback .NotAfter "-"}}</td>
+            <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .NotAfter "-"}}</span></td>
             <td>{{fallback .IssuerCN "-"}}<div class="muted">{{.IssuerOrg}}</div></td>
             <td>{{fallback .SubjectCN "-"}}</td>
             <td class="mono" title="{{.Fingerprint}}">{{shortFingerprint .Fingerprint}}</td>
@@ -1681,20 +1690,53 @@ const pageTemplate = `<!doctype html>
     (function () {
       var hostFilter = document.getElementById('inventory-host-filter');
       var statusFilter = document.getElementById('inventory-status-filter');
+      var pageSize = document.getElementById('inventory-page-size');
+      var prevPage = document.getElementById('inventory-prev-page');
+      var nextPage = document.getElementById('inventory-next-page');
+      var pageLabel = document.getElementById('inventory-page-label');
       var rows = Array.prototype.slice.call(document.querySelectorAll('tr[data-inventory-host]'));
-      function applyInventoryFilters() {
+      var currentPage = 1;
+      function filteredRows() {
         var hostQuery = hostFilter.value.toLowerCase();
         var status = statusFilter.value;
-        rows.forEach(function (row) {
+        return rows.filter(function (row) {
           var host = row.getAttribute('data-inventory-host').toLowerCase();
           var certState = row.getAttribute('data-cert-state');
           var hostMatch = !hostQuery || host.indexOf(hostQuery) !== -1;
           var statusMatch = !status || certState === status;
-          row.style.display = hostMatch && statusMatch ? '' : 'none';
+          return hostMatch && statusMatch;
         });
       }
-      hostFilter.addEventListener('input', applyInventoryFilters);
-      statusFilter.addEventListener('change', applyInventoryFilters);
+      function applyInventoryFilters() {
+        var matches = filteredRows();
+        var size = pageSize.value === 'all' ? matches.length || 1 : parseInt(pageSize.value, 10);
+        var pageCount = Math.max(1, Math.ceil(matches.length / size));
+        if (currentPage > pageCount) currentPage = pageCount;
+        var start = (currentPage - 1) * size;
+        var visible = matches.slice(start, start + size);
+        rows.forEach(function (row) {
+          row.style.display = visible.indexOf(row) === -1 ? 'none' : '';
+        });
+        pageLabel.textContent = 'Page ' + currentPage + ' / ' + pageCount;
+        prevPage.disabled = currentPage <= 1;
+        nextPage.disabled = currentPage >= pageCount;
+      }
+      function resetInventoryPage() {
+        currentPage = 1;
+        applyInventoryFilters();
+      }
+      hostFilter.addEventListener('input', resetInventoryPage);
+      statusFilter.addEventListener('change', resetInventoryPage);
+      pageSize.addEventListener('change', resetInventoryPage);
+      prevPage.addEventListener('click', function () {
+        if (currentPage > 1) currentPage--;
+        applyInventoryFilters();
+      });
+      nextPage.addEventListener('click', function () {
+        currentPage++;
+        applyInventoryFilters();
+      });
+      applyInventoryFilters();
     }());
   </script>
   {{end}}
