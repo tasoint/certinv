@@ -254,29 +254,40 @@ func TestRunnerAppliesManagedDiscoverySettings(t *testing.T) {
 	}
 }
 
-func TestRunnerCrtNameOverrideIsPerRun(t *testing.T) {
+func TestRunnerFiltersCrtNameApexes(t *testing.T) {
 	ctx := context.Background()
 	db, err := sqlitestore.Open(ctx, ":memory:")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	if err := db.SaveManagedCrtName(ctx, false, "https://crt.example/search", time.Now()); err != nil {
+	now := time.Now()
+	if err := db.SaveManagedCrtName(ctx, true, "https://crt.example/search", now); err != nil {
 		t.Fatal(err)
 	}
-	runner := Runner{Config: &config.Config{Discovery: config.Discovery{CrtName: config.CrtNameSource{Endpoint: "https://crt.name/v1/search"}}}, Store: db}
-	if got, err := runner.effectiveSources(ctx); err != nil || len(got) != 0 {
-		t.Fatalf("scheduled sources = %#v, %v", got, err)
+	if err := db.SaveManagedApexCrtName(ctx, "disabled.example.com", false, now); err != nil {
+		t.Fatal(err)
 	}
-	enabled := true
-	runner.CrtNameOverride = &enabled
-	if got, err := runner.effectiveSources(ctx); err != nil || len(got) != 1 || got[0].Name() != discover.SourceCrtName {
-		t.Fatalf("enabled override sources = %#v, %v", got, err)
+	runner := Runner{Config: &config.Config{
+		Apexes: []string{"enabled.example.com", "disabled.example.com"},
+		Discovery: config.Discovery{
+			Sources: []string{discover.SourceCrtName},
+			CrtName: config.CrtNameSource{Endpoint: "https://crt.name/v1/search"},
+		},
+	}, Store: db}
+	sources, err := runner.effectiveSources(ctx)
+	if err != nil {
+		t.Fatalf("effectiveSources() error = %v", err)
 	}
-	disabled := false
-	runner.CrtNameOverride = &disabled
-	if got, err := runner.effectiveSources(ctx); err != nil || len(got) != 0 {
-		t.Fatalf("disabled override sources = %#v, %v", got, err)
+	if len(sources) != 1 || sources[0].Name() != discover.SourceCrtName {
+		t.Fatalf("sources = %#v, want crtname", sources)
+	}
+	scoped, ok := sources[0].(scopedSource)
+	if !ok {
+		t.Fatalf("source type = %T, want scopedSource", sources[0])
+	}
+	if len(scoped.apexes) != 1 || scoped.apexes[0] != "enabled.example.com" {
+		t.Fatalf("scoped apexes = %#v", scoped.apexes)
 	}
 }
 

@@ -33,7 +33,7 @@ type Handler struct {
 }
 
 type ScanTrigger interface {
-	TriggerScan(includeCrtName bool) bool
+	TriggerScan() bool
 	Running() bool
 }
 
@@ -106,6 +106,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/ui/scan", h.serveScan)
 	mux.HandleFunc("/ui/scan/status", h.serveScanStatus)
 	mux.HandleFunc("/ui/apexes", h.serveAddApex)
+	mux.HandleFunc("/ui/apexes/crtname", h.serveSaveApexCrtName)
 	mux.HandleFunc("/ui/apexes/delete", h.serveDeleteApex)
 	mux.HandleFunc("/ui/manual-hosts", h.serveAddManualHost)
 	mux.HandleFunc("/ui/manual-hosts/edit", h.serveEditManualHost)
@@ -154,14 +155,7 @@ func (h *Handler) serveScan(w http.ResponseWriter, r *http.Request) {
 		redirectUIError(w, r, "scan trigger is not configured")
 		return
 	}
-	includeCrtName := h.sources.CrtNameEnabled
-	if managed, err := h.store.ManagedDiscovery(r.Context()); err == nil && managed.CrtNameSet {
-		includeCrtName = managed.CrtNameEnabled
-	}
-	if err := r.ParseForm(); err == nil {
-		_, includeCrtName = r.Form["include_crtname"]
-	}
-	if !h.scanner.TriggerScan(includeCrtName) {
+	if !h.scanner.TriggerScan() {
 		redirectUIError(w, r, "scan is already running")
 		return
 	}
@@ -228,6 +222,34 @@ func (h *Handler) serveDeleteApex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirectUINotice(w, r, "apex deleted")
+}
+
+func (h *Handler) serveSaveApexCrtName(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirectUITabError(w, r, "sources", "invalid form")
+		return
+	}
+	apexes, err := h.effectiveApexes(r.Context())
+	if err != nil {
+		redirectUITabError(w, r, "sources", "failed to load apexes")
+		return
+	}
+	apex, ok := selectedLookupApex(r.FormValue("apex"), apexes)
+	if !ok {
+		redirectUITabError(w, r, "sources", "apex is not configured")
+		return
+	}
+	enabled := r.FormValue("crtname_enabled") == "on"
+	if err := h.store.SaveManagedApexCrtName(r.Context(), apex, enabled, h.now()); err != nil {
+		redirectUITabError(w, r, "sources", "failed to save apex crtname setting")
+		return
+	}
+	redirectUITabNotice(w, r, "sources", "apex crtname setting saved")
 }
 
 func (h *Handler) serveAddManualHost(w http.ResponseWriter, r *http.Request) {
@@ -668,6 +690,7 @@ type pageData struct {
 	Suppressed   []store.SuppressedHost
 	Sources      sourceRows
 	Lookup       crtNameLookup
+	CrtNameScope crtNameScope
 	Notice       string
 	Error        string
 	PollScan     bool
@@ -679,9 +702,10 @@ type targetRows struct {
 }
 
 type targetApex struct {
-	Apex      string
-	Origin    string
-	CanDelete bool
+	Apex           string
+	Origin         string
+	CanDelete      bool
+	CrtNameEnabled bool
 }
 
 type targetManualHost struct {
@@ -713,6 +737,11 @@ type crtNameLookup struct {
 type crtNameCandidate struct {
 	Hostname string
 	Apex     string
+}
+
+type crtNameScope struct {
+	Enabled bool
+	Apexes  []string
 }
 
 type zoneRows struct {
@@ -792,17 +821,21 @@ func (h *Handler) pageData(ctx context.Context, tab, notice, messageError string
 		return pageData{}, err
 	}
 	data.Targets = targets
-	for _, apex := range targets.Apexes {
-		data.Lookup.Apexes = append(data.Lookup.Apexes, apex.Apex)
-	}
-	if len(data.Lookup.Apexes) > 0 {
-		data.Lookup.SelectedApex = data.Lookup.Apexes[0]
-	}
 	sources, err := h.sourceRows(ctx)
 	if err != nil {
 		return pageData{}, err
 	}
 	data.Sources = sources
+	data.CrtNameScope.Enabled = sources.CrtName.Enabled
+	for _, apex := range targets.Apexes {
+		data.Lookup.Apexes = append(data.Lookup.Apexes, apex.Apex)
+		if sources.CrtName.Enabled && apex.CrtNameEnabled {
+			data.CrtNameScope.Apexes = append(data.CrtNameScope.Apexes, apex.Apex)
+		}
+	}
+	if len(data.Lookup.Apexes) > 0 {
+		data.Lookup.SelectedApex = data.Lookup.Apexes[0]
+	}
 	return data, nil
 }
 
@@ -858,8 +891,18 @@ func activeTab(r *http.Request) string {
 
 func (h *Handler) targetRows(ctx context.Context) (targetRows, error) {
 	rows := targetRows{}
+	discovery, err := h.store.ManagedDiscovery(ctx)
+	if err != nil {
+		return targetRows{}, err
+	}
+	crtNameByApex := apexCrtNameMap(discovery.ApexCrtName)
 	for _, apex := range h.config.Apexes {
-		rows.Apexes = append(rows.Apexes, targetApex{Apex: discover.NormalizeHostname(apex), Origin: "config"})
+		apex = discover.NormalizeHostname(apex)
+		rows.Apexes = append(rows.Apexes, targetApex{
+			Apex:           apex,
+			Origin:         "config",
+			CrtNameEnabled: apexCrtNameEnabled(apex, crtNameByApex),
+		})
 	}
 	for _, host := range h.config.ManualHosts {
 		hostname := discover.NormalizeHostname(host.Hostname)
@@ -876,7 +919,12 @@ func (h *Handler) targetRows(ctx context.Context) (targetRows, error) {
 		return targetRows{}, err
 	}
 	for _, apex := range managed.Apexes {
-		rows.Apexes = append(rows.Apexes, targetApex{Apex: apex.Apex, Origin: apex.Source, CanDelete: true})
+		rows.Apexes = append(rows.Apexes, targetApex{
+			Apex:           apex.Apex,
+			Origin:         apex.Source,
+			CanDelete:      true,
+			CrtNameEnabled: apexCrtNameEnabled(apex.Apex, crtNameByApex),
+		})
 	}
 	for _, host := range managed.ManualHosts {
 		rows.ManualHosts = append(rows.ManualHosts, targetManualHost{
@@ -888,6 +936,22 @@ func (h *Handler) targetRows(ctx context.Context) (targetRows, error) {
 		})
 	}
 	return rows, nil
+}
+
+func apexCrtNameMap(settings []store.ManagedApexCrtName) map[string]bool {
+	values := make(map[string]bool, len(settings))
+	for _, setting := range settings {
+		values[discover.NormalizeHostname(setting.Apex)] = setting.Enabled
+	}
+	return values
+}
+
+func apexCrtNameEnabled(apex string, settings map[string]bool) bool {
+	enabled, ok := settings[discover.NormalizeHostname(apex)]
+	if !ok {
+		return true
+	}
+	return enabled
 }
 
 func (h *Handler) hasManagedManualHost(ctx context.Context, hostname string, port int) bool {
@@ -1370,11 +1434,12 @@ const pageTemplate = `<!doctype html>
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Apex</th><th>Origin</th><th>Action</th></tr></thead>
+          <thead><tr><th>Apex</th><th>Origin</th><th>crt.name</th><th>Action</th></tr></thead>
           <tbody>
             {{range .Targets.Apexes}}
             <tr>
               <td>{{.Apex}}</td><td>{{displayOrigin .Origin}}</td>
+              <td><form method="post" action="/ui/apexes/crtname?tab=sources"><input type="hidden" name="apex" value="{{.Apex}}"><label><input type="checkbox" name="crtname_enabled" {{if .CrtNameEnabled}}checked{{end}}> Enabled for this apex</label> <button class="button" type="submit">Save</button></form></td>
               <td>{{if .CanDelete}}<form method="post" action="/ui/apexes/delete?tab=sources"><input type="hidden" name="apex" value="{{.Apex}}"><button class="button" type="submit">Delete</button></form>{{else}}<span class="muted">config.yaml</span>{{end}}</td>
             </tr>
             {{end}}
@@ -1475,8 +1540,9 @@ const pageTemplate = `<!doctype html>
     {{else}}
     <section>
     {{if .PollScan}}<div id="scan-status" class="scan-status" role="status">Scanning...</div>{{end}}
+    <div class="meta">{{if .CrtNameScope.Enabled}}{{if .CrtNameScope.Apexes}}crt.name discovery: {{range $i, $apex := .CrtNameScope.Apexes}}{{if $i}}, {{end}}{{$apex}}{{end}}{{else}}crt.name discovery has no enabled apexes{{end}}{{else}}crt.name discovery is off{{end}}</div>
     <div class="actions">
-      <form method="post" action="/ui/scan" style="display:inline"><label><input type="checkbox" name="include_crtname" value="true"> Include crt.name</label> <button id="run-scan" class="button" type="submit" {{if .PollScan}}disabled{{end}}>Run scan now</button></form>
+      <form method="post" action="/ui/scan" style="display:inline"><button id="run-scan" class="button" type="submit" {{if .PollScan}}disabled{{end}}>Run scan now</button></form>
       <a class="button" href="/ui/export.csv">Download CSV</a>
     </div>
     </section>

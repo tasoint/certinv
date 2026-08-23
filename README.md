@@ -109,8 +109,8 @@ suppressed hostの記録をまとめて完全削除します。
 `/ui/export.csv` では、UIのインベントリ一覧と同等の証明書メタデータをCSVで
 ダウンロードできます。Inventoryテーブルはホスト名検索と証明書状態で絞り込めます。
 `/ui` の `Run scan now` ボタンから、設定済みapexを対象にしたscanを即時実行できます。
-横の `Include crt.name` はデフォルトOFFで、チェックした場合だけ今回の手動scanに適用されます。
-保存済み設定は変更しません。
+手動scanとscheduled scanはいずれも保存済みのdiscovery設定を使い、実行ごとの一時上書きは
+行いません。Inventoryタブには、現在crt.name discovery対象として有効なapex一覧を表示します。
 既にscan実行中の場合は新しい実行は拒否されます。手動scan受付後は `/ui/scan/status` を
 短時間ポーリングし、完了後にUIを再読み込みします。
 ポーリング中はScanning表示とボタン無効化を行い、60秒経過時は手動リロードを案内します。
@@ -120,12 +120,14 @@ manual hostはhostnameを固定したままportを編集できます。`config.y
 apexはcrt.name discovery有効時にCTログ上のサブドメインを自動発見するスコープであり、
 manual hostはCTログに現れないホストを追加するためのものです。manual hostはapex discoveryの
 絞り込み条件ではありません。
-crt.nameの有効/無効とendpoint、zone fileの追加もDB管理のオーバーレイとして保存されます。
+crt.nameの有効/無効とendpoint、apexごとのcrt.name有効/無効、zone fileの追加もDB管理の
+オーバーレイとして保存されます。crt.nameの全体設定はマスタースイッチで、OFFの場合はapexごとの
+設定に関わらずcrt.name discovery全体が無効です。apexごとの設定はデフォルトONです。
 `Sources & Targets` タブでは、設定済みのcrt.name endpointに対して現在のapex一覧
 （config + DB管理apex）から選んだ1つのapexでlookupを実行し、取得したサブドメイン候補を選択して
 managed manual host（port 443）としてTargetsへ追加できます。このlookupは候補取得のみで、
 DNS解決やTLS probeは行いません。Lookup nowは画面上のenabled/endpoint入力値をその場で使い、
-保存は行いません。Save crt.nameで保存した設定は次回以降のscheduled scanやRun scan nowに使われ、
+保存は行いません。Save crt.nameで保存した全体設定は次回以降のscheduled scanやRun scan nowに使われ、
 UI上にも現在の保存設定として表示されます。既にmanual hostとして登録済みのhostnameは候補から除外され、
 候補一覧はホスト名で絞り込み、全選択／全解除できます。
 zone fileのUI追加を使う場合は、`discovery.zone.allowed_dir` に許可ディレクトリを設定し、

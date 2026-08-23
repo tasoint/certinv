@@ -205,6 +205,9 @@ func TestOptionalBasicAuthProtectsUIManagement(t *testing.T) {
 	mux.HandleFunc("/ui/manual-hosts/edit", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusSeeOther)
 	})
+	mux.HandleFunc("/ui/apexes/crtname", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusSeeOther)
+	})
 	mux.HandleFunc("/ui/crtname", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusSeeOther)
 	})
@@ -225,7 +228,7 @@ func TestOptionalBasicAuthProtectsUIManagement(t *testing.T) {
 	})
 	handler := withOptionalBasicAuth(mux, config.ExporterAuth{Username: "operator", Password: "secret"})
 
-	for _, path := range []string{"/ui/manual-hosts", "/ui/manual-hosts/edit", "/ui/crtname", "/ui/hosts/purge", "/ui/hosts/suppress-all", "/ui/hosts/purge-all", "/ui/crtname/lookup", "/ui/crtname/add-selected"} {
+	for _, path := range []string{"/ui/manual-hosts", "/ui/manual-hosts/edit", "/ui/apexes/crtname", "/ui/crtname", "/ui/hosts/purge", "/ui/hosts/suppress-all", "/ui/hosts/purge-all", "/ui/crtname/lookup", "/ui/crtname/add-selected"} {
 		req := httptest.NewRequest(http.MethodPost, path, nil)
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -270,26 +273,26 @@ func TestSerialScanRunnerRejectsConcurrentManualScan(t *testing.T) {
 	release := make(chan struct{})
 	done := make(chan struct{})
 	var startedOnce sync.Once
-	scans := newSerialScanRunner(context.Background(), func(context.Context, *bool) error {
+	scans := newSerialScanRunner(context.Background(), func(context.Context) error {
 		startedOnce.Do(func() { close(started) })
 		<-release
 		return nil
 	}, nil)
 
-	if !scans.TriggerScan(true) {
+	if !scans.TriggerScan() {
 		t.Fatal("first TriggerScan() = false, want true")
 	}
 	<-started
 	if !scans.Running() {
 		t.Fatal("Running() = false, want true")
 	}
-	if scans.TriggerScan(true) {
+	if scans.TriggerScan() {
 		t.Fatal("second TriggerScan() = true, want false while running")
 	}
 	close(release)
 	go func() {
 		defer close(done)
-		for !scans.TriggerScan(true) {
+		for !scans.TriggerScan() {
 			time.Sleep(time.Millisecond)
 		}
 	}()

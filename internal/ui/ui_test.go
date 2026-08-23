@@ -45,7 +45,10 @@ func TestHandlerRendersInventory(t *testing.T) {
 		}},
 		events:     []store.StoredEvent{{ID: 7, Event: evaluate.Event{Kind: evaluate.EventWarn, Fingerprint: "abcdef1234567890", Detail: "expiring"}}},
 		suppressed: []store.SuppressedHost{{Hostname: "old.example.com", Port: 443}},
-	}, WithConfigTargets([]string{"example.com"}, nil))
+	}, WithConfigTargets([]string{"example.com"}, nil), WithSourceConfig(config.Discovery{
+		Sources: []string{discover.SourceCrtName},
+		CrtName: config.CrtNameSource{Endpoint: "https://crt.name/v1/search"},
+	}))
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -66,8 +69,11 @@ func TestHandlerRendersInventory(t *testing.T) {
 	if strings.Contains(body, "PRIVATE KEY") {
 		t.Fatal("body contains forbidden key material marker")
 	}
-	if strings.Contains(body, `name="include_crtname" value="true" checked`) {
-		t.Fatal("include_crtname checkbox is checked by default")
+	if strings.Contains(body, "include_crtname") {
+		t.Fatal("include_crtname override should not be rendered")
+	}
+	if !strings.Contains(body, "crt.name discovery: example.com") {
+		t.Fatalf("body missing crtname scope:\n%s", body)
 	}
 }
 
@@ -156,6 +162,25 @@ func TestHandlerAddsAndDeletesManagedTargets(t *testing.T) {
 	handler.serveDeleteManualHost(rec, req)
 	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "/ui?notice=") || store.deletedHost != "www.example.com:8443" {
 		t.Fatalf("delete host status=%d deleted=%q", rec.Code, store.deletedHost)
+	}
+}
+
+func TestHandlerSavesApexCrtNameSetting(t *testing.T) {
+	store := &fakeStore{}
+	handler, err := New(store, WithConfigTargets([]string{"example.com"}, nil))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	handler.serveSaveApexCrtName(rec, formRequest("/ui/apexes/crtname?tab=sources", "apex=example.com"))
+	if rec.Code != http.StatusSeeOther || store.apexCrtName != "example.com" || store.apexCrtEnabled {
+		t.Fatalf("status/apex/enabled = %d/%q/%t", rec.Code, store.apexCrtName, store.apexCrtEnabled)
+	}
+	rec = httptest.NewRecorder()
+	handler.serveSaveApexCrtName(rec, formRequest("/ui/apexes/crtname?tab=sources", "apex=example.com&crtname_enabled=on"))
+	if rec.Code != http.StatusSeeOther || store.apexCrtName != "example.com" || !store.apexCrtEnabled {
+		t.Fatalf("status/apex/enabled = %d/%q/%t", rec.Code, store.apexCrtName, store.apexCrtEnabled)
 	}
 }
 
@@ -471,25 +496,6 @@ func TestHandlerScanLoadingMarkup(t *testing.T) {
 	}
 }
 
-func TestHandlerPassesCrtNameScanOverride(t *testing.T) {
-	scanner := &fakeScanner{accepted: true}
-	handler, err := New(&fakeStore{}, WithScanTrigger(scanner))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := httptest.NewRequest(http.MethodPost, "/ui/scan", strings.NewReader("include_crtname=true"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	handler.serveScan(httptest.NewRecorder(), req)
-	if !scanner.include {
-		t.Fatal("include_crtname=false, want true")
-	}
-	req = httptest.NewRequest(http.MethodPost, "/ui/scan", nil)
-	handler.serveScan(httptest.NewRecorder(), req)
-	if scanner.include {
-		t.Fatal("unchecked include_crtname=true, want false")
-	}
-}
-
 func TestHandlerRejectsManualScanWhenRunning(t *testing.T) {
 	handler, err := New(&fakeStore{}, WithScanTrigger(&fakeScanner{accepted: false}))
 	if err != nil {
@@ -692,6 +698,8 @@ type fakeStore struct {
 	discovery       store.ManagedDiscovery
 	crtNameEnabled  bool
 	crtNameEndpoint string
+	apexCrtName     string
+	apexCrtEnabled  bool
 	addedZoneFile   string
 	deletedZoneFile string
 	purgedHost      string
@@ -768,6 +776,12 @@ func (s *fakeStore) SaveManagedCrtName(_ context.Context, enabled bool, endpoint
 	return nil
 }
 
+func (s *fakeStore) SaveManagedApexCrtName(_ context.Context, apex string, enabled bool, _ time.Time) error {
+	s.apexCrtName = apex
+	s.apexCrtEnabled = enabled
+	return nil
+}
+
 func (s *fakeStore) AddManagedZoneFile(_ context.Context, path string, _ time.Time) error {
 	s.addedZoneFile = path
 	return nil
@@ -782,12 +796,10 @@ type fakeScanner struct {
 	accepted bool
 	running  bool
 	calls    int
-	include  bool
 }
 
-func (s *fakeScanner) TriggerScan(include bool) bool {
+func (s *fakeScanner) TriggerScan() bool {
 	s.calls++
-	s.include = include
 	return s.accepted
 }
 
