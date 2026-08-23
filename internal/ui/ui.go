@@ -1296,6 +1296,7 @@ const pageTemplate = `<!doctype html>
     {{if .SourcesTab}}
     <section>
       <h2>Apexes</h2>
+      <p class="meta">Adding an apex lets certinv discover and scan its CT-log subdomains when crt.name discovery is enabled below. Manual hosts are additive targets for hosts that do not appear in CT logs; they are not a filter for apex discovery.</p>
       <div class="forms">
         <form method="post" action="/ui/apexes?tab=sources">
           <input name="apex" placeholder="example.com" required>
@@ -1353,6 +1354,7 @@ const pageTemplate = `<!doctype html>
         <span class="muted">origin={{displayOrigin .Sources.CrtName.Origin}}</span>
       </form>
       <div class="meta">Saving applies this setting to future scheduled scans and Run scan now.</div>
+      <div class="meta">When enabled, every apex registered above is expanded to its known CT-log subdomains on each scan.</div>
       <div class="meta">Saved setting: enabled={{.Sources.SavedCrtName.Enabled}} endpoint={{.Sources.SavedCrtName.Endpoint}}</div>
       {{if .Lookup.Candidates}}
       <form method="post" action="/ui/crtname/add-selected?tab=sources">
