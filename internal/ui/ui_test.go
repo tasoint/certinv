@@ -43,13 +43,53 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "expiring", "/ui/events/7/ack"} {
+	for _, want := range []string{"www.example.com", "healthy", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "expiring", "/ui/events/7/ack", "/ui/scan"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
 	}
 	if strings.Contains(body, "PRIVATE KEY") {
 		t.Fatal("body contains forbidden key material marker")
+	}
+}
+
+func TestHandlerAcceptsManualScan(t *testing.T) {
+	scanner := &fakeScanner{accepted: true}
+	handler, err := New(&fakeStore{}, WithScanTrigger(scanner))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/scan", nil)
+	rec := httptest.NewRecorder()
+	handler.serveScan(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want 202", rec.Code)
+	}
+	if scanner.calls != 1 {
+		t.Fatalf("scan calls = %d, want 1", scanner.calls)
+	}
+	if !strings.Contains(rec.Body.String(), "scan accepted") {
+		t.Fatalf("body missing acceptance message: %s", rec.Body.String())
+	}
+}
+
+func TestHandlerRejectsManualScanWhenRunning(t *testing.T) {
+	handler, err := New(&fakeStore{}, WithScanTrigger(&fakeScanner{accepted: false}))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/ui/scan", nil)
+	rec := httptest.NewRecorder()
+	handler.serveScan(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "already running") {
+		t.Fatalf("body missing running message: %s", rec.Body.String())
 	}
 }
 
@@ -196,4 +236,14 @@ func (s *fakeStore) AcknowledgeEvent(_ context.Context, eventID int64, by string
 	s.ackID = eventID
 	s.ackBy = by
 	return s.ackErr
+}
+
+type fakeScanner struct {
+	accepted bool
+	calls    int
+}
+
+func (s *fakeScanner) TriggerScan() bool {
+	s.calls++
+	return s.accepted
 }
