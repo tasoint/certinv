@@ -863,22 +863,6 @@ func (h *Handler) effectiveApexes(ctx context.Context) ([]string, error) {
 	return uniqueStrings(apexes), nil
 }
 
-func (h *Handler) effectiveCrtName(ctx context.Context) (string, bool, error) {
-	managed, err := h.store.ManagedDiscovery(ctx)
-	if err != nil {
-		return "", false, err
-	}
-	enabled := h.sources.CrtNameEnabled
-	endpoint := h.sources.CrtNameEndpoint
-	if managed.CrtNameSet {
-		enabled = managed.CrtNameEnabled
-		if managed.CrtNameEndpoint != "" {
-			endpoint = managed.CrtNameEndpoint
-		}
-	}
-	return endpoint, enabled, nil
-}
-
 func (h *Handler) sourceRows(ctx context.Context) (sourceRows, error) {
 	managed, err := h.store.ManagedDiscovery(ctx)
 	if err != nil {
