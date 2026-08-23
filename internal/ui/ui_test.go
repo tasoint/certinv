@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -161,6 +162,125 @@ func TestHandlerSavesCrtNameSettings(t *testing.T) {
 	}
 	if got := rec.Header().Get("Location"); !strings.Contains(got, "tab=sources") || !strings.Contains(got, "notice=") {
 		t.Fatalf("Location = %q, want sources notice", got)
+	}
+}
+
+func TestHandlerLooksUpCrtNameCandidates(t *testing.T) {
+	var gotApex string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotApex = r.URL.Query().Get("apex")
+		if gotApex != "example.com" {
+			t.Fatalf("apex query = %q, want example.com", gotApex)
+		}
+		if err := json.NewEncoder(w).Encode([]map[string]string{
+			{"name_value": "www.example.com\napi.example.com\noutside.example.net"},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	handler, err := New(&fakeStore{},
+		WithConfigTargets([]string{"example.com"}, nil),
+		WithSourceConfig(config.Discovery{
+			Sources: []string{discover.SourceCrtName},
+			CrtName: config.CrtNameSource{Endpoint: server.URL},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := formRequest("/ui/crtname/lookup?tab=sources", "")
+	rec := httptest.NewRecorder()
+	handler.serveCrtNameLookup(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{"crtname lookup completed", "www.example.com", "api.example.com", "Add selected to Targets"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("body missing %q:\n%s", want, body)
+		}
+	}
+	if strings.Contains(body, "outside.example.net") {
+		t.Fatalf("body contains out-of-scope host:\n%s", body)
+	}
+	if gotApex == "" {
+		t.Fatal("crtname server was not called")
+	}
+}
+
+func TestHandlerCrtNameLookupUsesManagedSettingsAndApexes(t *testing.T) {
+	var gotApex string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotApex = r.URL.Query().Get("apex")
+		if gotApex != "managed.example.net" {
+			t.Fatalf("apex query = %q, want managed.example.net", gotApex)
+		}
+		if err := json.NewEncoder(w).Encode([]map[string]string{
+			{"subdomain": "app.managed.example.net"},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	handler, err := New(&fakeStore{
+		targets: store.ManagedTargets{Apexes: []store.ManagedApex{{Apex: "managed.example.net", Source: "db"}}},
+		discovery: store.ManagedDiscovery{
+			CrtNameSet:      true,
+			CrtNameEnabled:  true,
+			CrtNameEndpoint: server.URL,
+		},
+	}, WithSourceConfig(config.Discovery{Sources: []string{discover.SourceCrtName}, CrtName: config.CrtNameSource{Endpoint: "http://unused.invalid"}}))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	handler.serveCrtNameLookup(rec, formRequest("/ui/crtname/lookup?tab=sources", ""))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "app.managed.example.net") {
+		t.Fatalf("status/body = %d/%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandlerAddsSelectedCrtNameHosts(t *testing.T) {
+	store := &fakeStore{}
+	handler, err := New(store, WithConfigTargets([]string{"example.com"}, nil))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	handler.serveAddCrtNameSelected(rec, formRequest("/ui/crtname/add-selected?tab=sources", "hostname=www.example.com&hostname=api.example.com"))
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "tab=sources") {
+		t.Fatalf("status/location = %d/%q", rec.Code, rec.Header().Get("Location"))
+	}
+	if len(store.addedHosts) != 2 {
+		t.Fatalf("added hosts = %d, want 2", len(store.addedHosts))
+	}
+	for _, host := range store.addedHosts {
+		if host.Port != 443 || host.Apex != "example.com" {
+			t.Fatalf("added host = %#v, want port 443 apex example.com", host)
+		}
+	}
+}
+
+func TestHandlerRejectsSelectedCrtNameHostOutsideApex(t *testing.T) {
+	store := &fakeStore{}
+	handler, err := New(store, WithConfigTargets([]string{"example.com"}, nil))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	handler.serveAddCrtNameSelected(rec, formRequest("/ui/crtname/add-selected?tab=sources", "hostname=outside.example.net"))
+	if rec.Code != http.StatusSeeOther || !strings.Contains(rec.Header().Get("Location"), "error=") {
+		t.Fatalf("status/location = %d/%q", rec.Code, rec.Header().Get("Location"))
+	}
+	if len(store.addedHosts) != 0 {
+		t.Fatalf("added hosts = %d, want 0", len(store.addedHosts))
 	}
 }
 
@@ -425,6 +545,7 @@ type fakeStore struct {
 	addedApex       string
 	deletedApex     string
 	addedHost       discover.Host
+	addedHosts      []discover.Host
 	deletedHost     string
 	ackID           int64
 	ackBy           string
@@ -458,6 +579,7 @@ func (s *fakeStore) DeleteManagedApex(_ context.Context, apex string) error {
 
 func (s *fakeStore) AddManagedManualHost(_ context.Context, host discover.Host, _ time.Time) error {
 	s.addedHost = host
+	s.addedHosts = append(s.addedHosts, host)
 	return nil
 }
 

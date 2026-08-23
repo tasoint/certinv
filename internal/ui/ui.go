@@ -19,6 +19,7 @@ import (
 
 	"github.com/tasoint/certinv/internal/config"
 	"github.com/tasoint/certinv/internal/discover"
+	"github.com/tasoint/certinv/internal/discover/crtname"
 	"github.com/tasoint/certinv/internal/store"
 )
 
@@ -111,6 +112,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/ui/hosts/unsuppress", h.serveUnsuppressHost)
 	mux.HandleFunc("/ui/hosts/purge", h.servePurgeHost)
 	mux.HandleFunc("/ui/crtname", h.serveSaveCrtName)
+	mux.HandleFunc("/ui/crtname/lookup", h.serveCrtNameLookup)
+	mux.HandleFunc("/ui/crtname/add-selected", h.serveAddCrtNameSelected)
 	mux.HandleFunc("/ui/zone-files", h.serveAddZoneFile)
 	mux.HandleFunc("/ui/zone-files/delete", h.serveDeleteZoneFile)
 }
@@ -129,43 +132,12 @@ func (h *Handler) serveInventory(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	snapshot, err := h.store.InventorySnapshot(r.Context())
+	data, err := h.pageData(r.Context(), activeTab(r), r.URL.Query().Get("notice"), r.URL.Query().Get("error"))
 	if err != nil {
 		http.Error(w, "failed to load inventory", http.StatusInternalServerError)
 		return
 	}
-	events, err := h.store.UnacknowledgedEvents(r.Context())
-	if err != nil {
-		http.Error(w, "failed to load events", http.StatusInternalServerError)
-		return
-	}
-	suppressed, err := h.store.SuppressedHosts(r.Context())
-	if err != nil {
-		http.Error(w, "failed to load suppressed hosts", http.StatusInternalServerError)
-		return
-	}
-	data := pageData{
-		GeneratedAt: h.now().UTC().Format(time.RFC3339),
-		Tab:         activeTab(r),
-		Rows:        snapshot.Rows,
-		Events:      events,
-		Suppressed:  suppressed,
-		Notice:      r.URL.Query().Get("notice"),
-		Error:       r.URL.Query().Get("error"),
-	}
-	data.PollScan = data.Notice == "scan accepted"
-	data.InventoryTab = data.Tab == "inventory"
-	data.SourcesTab = data.Tab == "sources"
-	if targets, err := h.targetRows(r.Context()); err == nil {
-		data.Targets = targets
-	}
-	if sources, err := h.sourceRows(r.Context()); err == nil {
-		data.Sources = sources
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if err := h.template.Execute(w, data); err != nil {
-		http.Error(w, "failed to render inventory", http.StatusInternalServerError)
-	}
+	h.renderPage(w, data)
 }
 
 func (h *Handler) serveScan(w http.ResponseWriter, r *http.Request) {
@@ -314,6 +286,86 @@ func (h *Handler) serveSaveCrtName(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirectUITabNotice(w, r, "sources", "crtname settings saved")
+}
+
+func (h *Handler) serveCrtNameLookup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	apexes, err := h.effectiveApexes(r.Context())
+	if err != nil {
+		h.renderSourcesError(w, r, "failed to load apexes")
+		return
+	}
+	if len(apexes) == 0 {
+		h.renderSourcesError(w, r, "no apexes configured")
+		return
+	}
+	endpoint, enabled, err := h.effectiveCrtName(r.Context())
+	if err != nil {
+		h.renderSourcesError(w, r, "failed to load crtname settings")
+		return
+	}
+	if !enabled {
+		h.renderSourcesError(w, r, "crtname discovery is disabled")
+		return
+	}
+	if strings.TrimSpace(endpoint) == "" {
+		h.renderSourcesError(w, r, "crtname endpoint is not configured")
+		return
+	}
+	hosts, err := crtname.New(endpoint).Discover(r.Context(), apexes)
+	if err != nil {
+		h.renderSourcesError(w, r, "crtname lookup failed")
+		return
+	}
+	candidates := make([]crtNameCandidate, 0, len(hosts))
+	for _, host := range hosts {
+		candidates = append(candidates, crtNameCandidate{
+			Hostname: host.Hostname,
+			Apex:     host.Apex,
+		})
+	}
+	data, err := h.pageData(r.Context(), "sources", "crtname lookup completed", "")
+	if err != nil {
+		http.Error(w, "failed to load inventory", http.StatusInternalServerError)
+		return
+	}
+	data.Lookup.Candidates = candidates
+	h.renderPage(w, data)
+}
+
+func (h *Handler) serveAddCrtNameSelected(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirectUITabError(w, r, "sources", "invalid form")
+		return
+	}
+	hostnames := r.Form["hostname"]
+	if len(hostnames) == 0 {
+		redirectUITabError(w, r, "sources", "no crtname hosts selected")
+		return
+	}
+	added := 0
+	for _, hostname := range hostnames {
+		host, err := h.validateManualHost(r.Context(), hostname, strconv.Itoa(discover.DefaultPort))
+		if err != nil {
+			redirectUITabError(w, r, "sources", "selected host is outside configured or managed apexes")
+			return
+		}
+		if err := h.store.AddManagedManualHost(r.Context(), host, h.now()); err != nil {
+			redirectUITabError(w, r, "sources", "failed to add selected hosts")
+			return
+		}
+		added++
+	}
+	redirectUITabNotice(w, r, "sources", fmt.Sprintf("added %d crtname hosts", added))
 }
 
 func (h *Handler) serveAddZoneFile(w http.ResponseWriter, r *http.Request) {
@@ -502,6 +554,7 @@ type pageData struct {
 	Events       []store.StoredEvent
 	Suppressed   []store.SuppressedHost
 	Sources      sourceRows
+	Lookup       crtNameLookup
 	Notice       string
 	Error        string
 	PollScan     bool
@@ -537,6 +590,15 @@ type crtNameRow struct {
 	Origin   string
 }
 
+type crtNameLookup struct {
+	Candidates []crtNameCandidate
+}
+
+type crtNameCandidate struct {
+	Hostname string
+	Apex     string
+}
+
 type zoneRows struct {
 	AllowedDir     string
 	Enabled        bool
@@ -569,6 +631,60 @@ func fallback(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func (h *Handler) pageData(ctx context.Context, tab, notice, messageError string) (pageData, error) {
+	snapshot, err := h.store.InventorySnapshot(ctx)
+	if err != nil {
+		return pageData{}, err
+	}
+	events, err := h.store.UnacknowledgedEvents(ctx)
+	if err != nil {
+		return pageData{}, err
+	}
+	suppressed, err := h.store.SuppressedHosts(ctx)
+	if err != nil {
+		return pageData{}, err
+	}
+	data := pageData{
+		GeneratedAt: h.now().UTC().Format(time.RFC3339),
+		Tab:         tab,
+		Rows:        snapshot.Rows,
+		Events:      events,
+		Suppressed:  suppressed,
+		Notice:      notice,
+		Error:       messageError,
+	}
+	data.PollScan = data.Notice == "scan accepted"
+	data.InventoryTab = data.Tab == "inventory"
+	data.SourcesTab = data.Tab == "sources"
+	targets, err := h.targetRows(ctx)
+	if err != nil {
+		return pageData{}, err
+	}
+	data.Targets = targets
+	sources, err := h.sourceRows(ctx)
+	if err != nil {
+		return pageData{}, err
+	}
+	data.Sources = sources
+	return data, nil
+}
+
+func (h *Handler) renderPage(w http.ResponseWriter, data pageData) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := h.template.Execute(w, data); err != nil {
+		http.Error(w, "failed to render inventory", http.StatusInternalServerError)
+	}
+}
+
+func (h *Handler) renderSourcesError(w http.ResponseWriter, r *http.Request, message string) {
+	data, err := h.pageData(r.Context(), "sources", "", message)
+	if err != nil {
+		http.Error(w, "failed to load inventory", http.StatusInternalServerError)
+		return
+	}
+	h.renderPage(w, data)
 }
 
 func redirectUINotice(w http.ResponseWriter, r *http.Request, message string) {
@@ -637,6 +753,34 @@ func (h *Handler) targetRows(ctx context.Context) (targetRows, error) {
 		})
 	}
 	return rows, nil
+}
+
+func (h *Handler) effectiveApexes(ctx context.Context) ([]string, error) {
+	apexes := append([]string{}, h.config.Apexes...)
+	managed, err := h.store.ManagedTargets(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, apex := range managed.Apexes {
+		apexes = append(apexes, apex.Apex)
+	}
+	return uniqueStrings(apexes), nil
+}
+
+func (h *Handler) effectiveCrtName(ctx context.Context) (string, bool, error) {
+	managed, err := h.store.ManagedDiscovery(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	enabled := h.sources.CrtNameEnabled
+	endpoint := h.sources.CrtNameEndpoint
+	if managed.CrtNameSet {
+		enabled = managed.CrtNameEnabled
+		if managed.CrtNameEndpoint != "" {
+			endpoint = managed.CrtNameEndpoint
+		}
+	}
+	return endpoint, enabled, nil
 }
 
 func (h *Handler) sourceRows(ctx context.Context) (sourceRows, error) {
@@ -786,6 +930,23 @@ func contains(values []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	var result []string
+	for _, value := range values {
+		value = discover.NormalizeHostname(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 var csvHeader = []string{
@@ -1061,8 +1222,29 @@ const pageTemplate = `<!doctype html>
         <label><input type="checkbox" name="enabled" {{if .Sources.CrtName.Enabled}}checked{{end}}> Enabled</label>
         <input name="endpoint" value="{{.Sources.CrtName.Endpoint}}" placeholder="https://crt.name/v1/search">
         <button class="button" type="submit">Save crt.name</button>
+        <button class="button" type="submit" formaction="/ui/crtname/lookup?tab=sources">Lookup now</button>
         <span class="muted">origin={{.Sources.CrtName.Origin}}</span>
       </form>
+      {{if .Lookup.Candidates}}
+      <form method="post" action="/ui/crtname/add-selected?tab=sources">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Select</th><th>Hostname</th><th>Apex</th><th>Port</th></tr></thead>
+            <tbody>
+              {{range .Lookup.Candidates}}
+              <tr>
+                <td><input type="checkbox" name="hostname" value="{{.Hostname}}"></td>
+                <td>{{.Hostname}}</td>
+                <td>{{.Apex}}</td>
+                <td>443</td>
+              </tr>
+              {{end}}
+            </tbody>
+          </table>
+        </div>
+        <div class="actions"><button class="button" type="submit">Add selected to Targets</button></div>
+      </form>
+      {{end}}
     </section>
     <section>
       <h2>Zone files</h2>
