@@ -46,22 +46,53 @@ certinv は **自分が所有・管理するドメイン** の棚卸しに使う
 
 Go 1.25 以降が必要です。
 
+### クイックスタート
+
+初めて使う場合は、次の手順で設定から常駐運用まで進められます。
+
+1. 設定ファイルの例をコピーします。
+
+   ```sh
+   cp config.example.yaml config.yaml
+   ```
+
+2. `config.yaml` の `apexes` を、自分が所有・管理するドメインに書き換えます。
+   `apexes` に登録したドメインだけが処理対象です。
+
+3. 単発スキャンを実行します。
+
+   ```sh
+   go run ./cmd/certinv scan --config config.yaml
+   ```
+
+4. 常駐モードを起動します。定期スキャンに加えて Web UI と Prometheus metrics を提供します。
+
+   ```sh
+   go run ./cmd/certinv serve --config config.yaml
+   ```
+
+5. ブラウザで http://localhost:9101/ui を開き、インベントリを確認します。
+
+### コマンド別の使い方
+
+開発時の確認には、次のコマンドを使います。
+
 ```sh
 go test ./...
 go vet ./...
 gofmt -l .
 ```
 
-単発 scan:
+単発 `scan`:
 
 ```sh
-go run ./cmd/certinv scan --config config.example.yaml
+go run ./cmd/certinv scan --config config.yaml
 ```
 
-常駐モード:
+常駐 `serve`:
 
 ```sh
-go run ./cmd/certinv serve --config config.example.yaml
+go run ./cmd/certinv serve --config config.yaml
 ```
 
 `serve` では Prometheus metrics を `/metrics` で提供します。`/ui` でインベントリ一覧と
