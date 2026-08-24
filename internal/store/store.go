@@ -145,6 +145,7 @@ type InventoryRow struct {
 	NotBefore        string
 	NotAfter         string
 	LifetimeDays     int
+	KeyAlgorithm     string
 	Automation       string
 	AutomationReason string
 	SANNames         string

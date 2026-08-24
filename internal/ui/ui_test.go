@@ -36,6 +36,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 				CertState:        "healthy",
 				Automation:       "likely_auto",
 				AutomationReason: "short-lived certificate from known ACME-capable issuer",
+				KeyAlgorithm:     "RSA",
 				Fingerprint:      "abcdef1234567890",
 				SubjectCN:        "www.example.com",
 				IssuerCN:         "Test CA",
@@ -63,7 +64,7 @@ func TestHandlerRendersInventory(t *testing.T) {
 		t.Fatalf("status = %d, want 200", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{"www.example.com", "healthy", "Likely automated", "short-lived certificate from known ACME-capable issuer", "Automation is a heuristic", "Likely manual: long-lived certificate", "Automation", "state-likely_auto", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "remaining validity ratio", "expiring", "/ui/events/7/ack", "/ui/scan", "theme-toggle", "Light / Dark", "certinv-theme", "data-theme", "localStorage.setItem('certinv-theme'", "inventory-host-filter", "inventory-status-filter", "inventory-status-summary", "data-inventory-status-summary", "Cert state summary", "Healthy", "Misconfigured", "statusFilter.value = status.value", "renderStatusSummary", "inventory-page-size", "inventory-prev-page", "inventory-page-label", "inventory-next-page", "filteredRows", "resetInventoryPage", "Page 1 / 1", "data-inventory-host=\"www.example.com\"", "data-cert-state=\"healthy\"", "<td><span class=\"state state-healthy\">2026-11-17T12:44:20Z</span></td>", "applyInventoryFilters", "All clear", "/ui/hosts/suppress-all", "Purge all", "/ui/hosts/purge-all", "saved", "problem"} {
+	for _, want := range []string{"www.example.com", "healthy", "Likely automated", "short-lived certificate from known ACME-capable issuer", "Automation is a heuristic", "Likely manual: long-lived certificate", "Automation", "Key algorithm", "Chain", "RSA", "Complete", "inventory-key-filter", "inventory-chain-filter", "data-key-algorithm=\"rsa\"", "data-chain=\"complete\"", "keyFilter.addEventListener", "chainFilter.addEventListener", "state-likely_auto", "Test CA", "abcdef123456", "example.com", "/ui/export.csv", "Unacknowledged alerts", "remaining validity ratio", "expiring", "/ui/events/7/ack", "/ui/scan", "theme-toggle", "Light / Dark", "certinv-theme", "data-theme", "localStorage.setItem('certinv-theme'", "inventory-host-filter", "inventory-status-filter", "inventory-status-summary", "data-inventory-status-summary", "Cert state summary", "Healthy", "Misconfigured", "statusFilter.value = status.value", "renderStatusSummary", "inventory-page-size", "inventory-prev-page", "inventory-page-label", "inventory-next-page", "filteredRows", "resetInventoryPage", "Page 1 / 1", "data-inventory-host=\"www.example.com\"", "data-cert-state=\"healthy\"", "<td><span class=\"state state-healthy\">2026-11-17T12:44:20Z</span></td>", "applyInventoryFilters", "All clear", "/ui/hosts/suppress-all", "Purge all", "/ui/hosts/purge-all", "saved", "problem"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("body missing %q:\n%s", want, body)
 		}
@@ -568,6 +569,7 @@ func TestHandlerExportsInventoryCSV(t *testing.T) {
 			HostStatus:     "active",
 			CertState:      "healthy",
 			Automation:     "likely_auto",
+			KeyAlgorithm:   "RSA",
 			Fingerprint:    "abcdef1234567890",
 			SubjectCN:      "www.example.com",
 			IssuerCN:       "Test CA",
@@ -606,13 +608,13 @@ func TestHandlerExportsInventoryCSV(t *testing.T) {
 		t.Fatalf("csv rows = %d, want 2: %#v", len(records), records)
 	}
 	header := strings.Join(records[0], ",")
-	for _, want := range []string{"host", "port", "apex", "automation", "issuer_cn", "fingerprint", "san", "observed_at"} {
+	for _, want := range []string{"host", "port", "apex", "automation", "key_algorithm", "chain", "issuer_cn", "fingerprint", "san", "observed_at"} {
 		if !strings.Contains(header, want) {
 			t.Fatalf("header missing %q: %s", want, header)
 		}
 	}
 	row := records[1]
-	for _, want := range []string{"www.example.com", "443", "example.com", "likely_auto", "Test CA", "Example Org", "abcdef1234567890", "www.example.com;example.com", "true"} {
+	for _, want := range []string{"www.example.com", "443", "example.com", "likely_auto", "RSA", "Complete", "Test CA", "Example Org", "abcdef1234567890", "www.example.com;example.com", "true"} {
 		if !containsCSVField(row, want) {
 			t.Fatalf("row missing %q: %#v", want, row)
 		}
