@@ -119,7 +119,7 @@ certinv serve --config config.yaml
 - `Suppress` removes a host from the list and future discovery / scans; `Unsuppress` restores it.
 - `All clear` suppresses all currently displayed hosts.
 - `Purge` / `Purge all` permanently remove suppressed host records and certificate links, but do not remove certificate metadata itself.
-- `/ui/export.csv` downloads certificate metadata equivalent to the inventory. The Inventory table can be filtered by hostname and certificate state, and the Cert State summary badges can be clicked to filter by that state.
+- `/ui/export.csv` downloads certificate metadata equivalent to the inventory. The Inventory table can be filtered by hostname, certificate state, key algorithm, chain completeness, and page size. The Cert State summary badges can be clicked to filter by that state.
 - Certificate issuance, renewal, and private-key operations are not performed.
 
 ### Sources & Targets tab

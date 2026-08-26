@@ -27,7 +27,7 @@
 - Prometheus `/metrics`
 - `serve` HTTPサーバの任意Basic認証
 - `/ui` のインベントリ表示
-- Inventoryテーブルのホスト名検索・証明書状態フィルタ・ページネーション・Cert State件数サマリー
+- Inventoryテーブルのホスト名検索・証明書状態・鍵アルゴリズム・チェーン完全性フィルタ、ページネーション、Cert State件数サマリー
 - Inventory/CSV/Prometheus metricsで証明書の自動更新推定（likely_auto/likely_manual/unknown）を表示。UIは読みやすいラベルと判定理由ツールチップを表示
 - `/ui/export.csv` によるインベントリCSV export
 - `/ui/scan` によるUIからの手動scan即時実行（二重起動防止あり）

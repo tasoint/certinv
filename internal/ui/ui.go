@@ -79,11 +79,13 @@ func WithSourceConfig(discovery config.Discovery) Option {
 
 func New(st store.Store, opts ...Option) (*Handler, error) {
 	tmpl, err := template.New("inventory").Funcs(template.FuncMap{
-		"shortFingerprint": shortFingerprint,
-		"splitSAN":         splitSAN,
-		"fallback":         fallback,
-		"displayOrigin":    displayOrigin,
-		"automationLabel":  automationLabel,
+		"shortFingerprint":  shortFingerprint,
+		"splitSAN":          splitSAN,
+		"fallback":          fallback,
+		"displayOrigin":     displayOrigin,
+		"automationLabel":   automationLabel,
+		"chainLabel":        chainLabel,
+		"keyAlgorithmGroup": keyAlgorithmGroup,
 	}).Parse(pageTemplate)
 	if err != nil {
 		return nil, err
@@ -805,6 +807,24 @@ func automationLabel(class string) string {
 	}
 }
 
+func chainLabel(complete bool) string {
+	if complete {
+		return "Complete"
+	}
+	return "Incomplete"
+}
+
+func keyAlgorithmGroup(algorithm string) string {
+	switch strings.ToUpper(strings.TrimSpace(algorithm)) {
+	case "RSA":
+		return "rsa"
+	case "ECDSA":
+		return "ecdsa"
+	default:
+		return "other"
+	}
+}
+
 func (h *Handler) pageData(ctx context.Context, tab, notice, messageError string) (pageData, error) {
 	snapshot, err := h.store.InventorySnapshot(ctx)
 	if err != nil {
@@ -1203,6 +1223,8 @@ var csvHeader = []string{
 	"host_status",
 	"cert_state",
 	"automation",
+	"key_algorithm",
+	"chain",
 	"not_before",
 	"not_after",
 	"issuer_cn",
@@ -1210,7 +1232,6 @@ var csvHeader = []string{
 	"subject_cn",
 	"fingerprint",
 	"san",
-	"chain_complete",
 	"hostname_match",
 	"first_seen_at",
 	"last_resolved_at",
@@ -1229,6 +1250,8 @@ func csvRow(row store.InventoryRow) []string {
 		row.HostStatus,
 		row.CertState,
 		fallback(row.Automation, "unknown"),
+		row.KeyAlgorithm,
+		chainLabel(row.ChainComplete),
 		row.NotBefore,
 		row.NotAfter,
 		row.IssuerCN,
@@ -1236,7 +1259,6 @@ func csvRow(row store.InventoryRow) []string {
 		row.SubjectCN,
 		row.Fingerprint,
 		strings.Join(splitSAN(row.SANNames), ";"),
-		strconv.FormatBool(row.ChainComplete),
 		strconv.FormatBool(row.HostnameMatch),
 		row.FirstSeenAt,
 		row.LastResolvedAt,
@@ -1673,6 +1695,17 @@ const pageTemplate = `<!doctype html>
         <option value="misconfigured">misconfigured</option>
         <option value="unknown">unknown</option>
       </select>
+      <select id="inventory-key-filter">
+        <option value="">All key algorithms</option>
+        <option value="rsa">RSA</option>
+        <option value="ecdsa">ECDSA</option>
+        <option value="other">Other</option>
+      </select>
+      <select id="inventory-chain-filter">
+        <option value="">All chains</option>
+        <option value="complete">Complete</option>
+        <option value="incomplete">Incomplete</option>
+      </select>
       <label>Rows <select id="inventory-page-size">
         <option value="10">10</option>
         <option value="20" selected>20</option>
@@ -1692,6 +1725,8 @@ const pageTemplate = `<!doctype html>
             <th>Host status</th>
             <th>Cert state</th>
             <th>Automation</th>
+            <th>Key algorithm</th>
+            <th>Chain</th>
             <th>Not after</th>
             <th>Issuer</th>
             <th>Subject CN</th>
@@ -1705,11 +1740,13 @@ const pageTemplate = `<!doctype html>
         </thead>
         <tbody>
           {{range .Rows}}
-          <tr data-inventory-host="{{.Hostname}}" data-cert-state="{{fallback .CertState "unknown"}}">
+          <tr data-inventory-host="{{.Hostname}}" data-cert-state="{{fallback .CertState "unknown"}}" data-key-algorithm="{{keyAlgorithmGroup .KeyAlgorithm}}" data-chain="{{if .ChainComplete}}complete{{else}}incomplete{{end}}">
             <td><strong>{{.Hostname}}</strong>:{{.Port}}<div class="muted">{{.Apex}} / {{.Source}}</div></td>
             <td>{{.HostStatus}}</td>
             <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .CertState "unknown"}}</span></td>
             <td><span class="state state-{{fallback .Automation "unknown"}}" title="{{fallback .AutomationReason "No automation reason recorded."}}">{{automationLabel .Automation}}</span></td>
+            <td>{{fallback .KeyAlgorithm "-"}}</td>
+            <td>{{chainLabel .ChainComplete}}</td>
             <td><span class="state state-{{fallback .CertState "unknown"}}">{{fallback .NotAfter "-"}}</span></td>
             <td>{{fallback .IssuerCN "-"}}<div class="muted">{{.IssuerOrg}}</div></td>
             <td>{{fallback .SubjectCN "-"}}</td>
@@ -1718,7 +1755,7 @@ const pageTemplate = `<!doctype html>
             <td>{{fallback .LastProbedAt "-"}}</td>
             <td>{{fallback .ObservedAt "-"}}</td>
             <td>{{if .HTTPStatus}}{{.HTTPStatus}}{{else}}-{{end}}</td>
-            <td>chain={{.ChainComplete}}<br>host={{.HostnameMatch}}<br><form method="post" action="/ui/hosts/suppress" onsubmit="return confirm('このホストをインベントリから削除しますか？次回scanでも対象外になります')"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Suppress</button></form></td>
+            <td>host={{.HostnameMatch}}<br><form method="post" action="/ui/hosts/suppress" onsubmit="return confirm('このホストをインベントリから削除しますか？次回scanでも対象外になります')"><input type="hidden" name="hostname" value="{{.Hostname}}"><input type="hidden" name="port" value="{{.Port}}"><button class="button" type="submit">Suppress</button></form></td>
           </tr>
           {{end}}
         </tbody>
@@ -1811,6 +1848,8 @@ const pageTemplate = `<!doctype html>
     (function () {
       var hostFilter = document.getElementById('inventory-host-filter');
       var statusFilter = document.getElementById('inventory-status-filter');
+      var keyFilter = document.getElementById('inventory-key-filter');
+      var chainFilter = document.getElementById('inventory-chain-filter');
       var pageSize = document.getElementById('inventory-page-size');
       var prevPage = document.getElementById('inventory-prev-page');
       var nextPage = document.getElementById('inventory-next-page');
@@ -1849,12 +1888,18 @@ const pageTemplate = `<!doctype html>
       function filteredRows() {
         var hostQuery = hostFilter.value.toLowerCase();
         var status = statusFilter.value;
+        var keyAlgorithm = keyFilter.value;
+        var chain = chainFilter.value;
         return rows.filter(function (row) {
           var host = row.getAttribute('data-inventory-host').toLowerCase();
           var certState = row.getAttribute('data-cert-state');
+          var rowKeyAlgorithm = row.getAttribute('data-key-algorithm');
+          var rowChain = row.getAttribute('data-chain');
           var hostMatch = !hostQuery || host.indexOf(hostQuery) !== -1;
           var statusMatch = !status || certState === status;
-          return hostMatch && statusMatch;
+          var keyMatch = !keyAlgorithm || rowKeyAlgorithm === keyAlgorithm;
+          var chainMatch = !chain || rowChain === chain;
+          return hostMatch && statusMatch && keyMatch && chainMatch;
         });
       }
       function applyInventoryFilters() {
@@ -1877,6 +1922,8 @@ const pageTemplate = `<!doctype html>
       }
       hostFilter.addEventListener('input', resetInventoryPage);
       statusFilter.addEventListener('change', resetInventoryPage);
+      keyFilter.addEventListener('change', resetInventoryPage);
+      chainFilter.addEventListener('change', resetInventoryPage);
       pageSize.addEventListener('change', resetInventoryPage);
       prevPage.addEventListener('click', function () {
         if (currentPage > 1) currentPage--;

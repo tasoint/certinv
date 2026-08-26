@@ -87,6 +87,7 @@ func TestStorePersistsHostCertificateLink(t *testing.T) {
 		NotBefore:     now.Add(-24 * time.Hour),
 		NotAfter:      now.Add(47 * 24 * time.Hour),
 		LifetimeDays:  48,
+		KeyAlgorithm:  "RSA",
 		IsSelfSigned:  true,
 		SANNames:      []string{"www.example.com"},
 		ChainComplete: true,
@@ -289,6 +290,7 @@ func TestInventorySnapshot(t *testing.T) {
 		NotBefore:     now.Add(-24 * time.Hour),
 		NotAfter:      now.Add(47 * 24 * time.Hour),
 		LifetimeDays:  48,
+		KeyAlgorithm:  "ECDSA",
 		SANNames:      []string{"www.example.com"},
 		ChainComplete: true,
 		HostnameMatch: true,
@@ -317,7 +319,7 @@ func TestInventorySnapshot(t *testing.T) {
 		t.Fatalf("rows = %d, want 1", len(snapshot.Rows))
 	}
 	row := snapshot.Rows[0]
-	if row.Hostname != "www.example.com" || row.Fingerprint != "abc123" || row.CertState != evaluate.StateHealthy || row.HTTPStatus != 502 || row.Automation != "likely_manual" {
+	if row.Hostname != "www.example.com" || row.Fingerprint != "abc123" || row.CertState != evaluate.StateHealthy || row.HTTPStatus != 502 || row.Automation != "likely_manual" || row.KeyAlgorithm != "ECDSA" {
 		t.Fatalf("row = %#v", row)
 	}
 	if row.AutomationReason != "long-lived certificate from issuer not in ACME shortlist" {
